@@ -1,0 +1,29 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Android/Gradle
+*.iml
+.gradle/
+local.properties
+.idea/
+.DS_Store
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# C/NDK
+*.o
+*.so
+!android/**/jniLibs/**/*.so
+
+# OS/editor
+*.log
+*.tmp
+Thumbs.db
