@@ -51,36 +51,61 @@ session. (Details: PLAN.md §7-Phase A)
 - [x] CI run watched to completion (`gh run watch`), status reported
 
 ### Rust core
-- [ ] `core/Cargo.toml`: cdylib + pinned dependencies
-- [ ] `core/src/lib.rs`: cdylib entry, JNI_OnLoad, panic hook
-- [ ] `core/src/ffi/mod.rs`: error code enum + Kotlin mirror + helpers
-- [ ] `core/src/session/manager.rs`: Session (Term + EventLoop), handle table
-- [ ] `core/src/session/pty_factory.rs`: LocalPty — libc forkpty + setsid,
-      OEM fallback (slave-stdio when login-tty spawn fails)
-- [ ] `core/src/session/mod.rs`: spawn/write/resize/kill/close lifecycle
-- [ ] `core/src/ffi/session.rs`: JNI functions
-- [ ] `core/src/bridge/cell.rs`: cell encoding (codepoint u32 + style u32)
-- [ ] `core/src/bridge/snapshot.rs`: Term → flat cell buffer + damage list
-- [ ] `core/src/ffi/snapshot.rs`: DirectByteBuffer + damage indices
-- [ ] `core/src/bridge/events.rs`: EventListener (title/bell/cwd/exit minimum)
-- [ ] `core/src/ffi/events.rs`: event queue drain
-- [ ] `core/src/util/*`: log, sync, error
+- [x] `core/Cargo.toml`: cdylib + rlib (integration tests) + pinned
+      dependencies (alacritty_terminal =0.26.0, jni =0.21, libc, log,
+      polling 3.8, signal-hook 0.4.3 — the last two matching the engine's own
+      versions so the tree keeps one copy)
+- [x] `core/src/lib.rs`: cdylib entry, JNI_OnLoad, panic hook, nativeVersion
+- [x] `core/src/ffi/mod.rs`: error code enum + helpers + frozen-value test
+- [x] `core/src/session/manager.rs`: handle table (ids from 1, max 8)
+- [x] `core/src/session/pty_factory.rs`: LocalPty — posix_openpt +
+      TIOCGPTPEER + login-tty child (setsid/TIOCSCTTY/dup2), slave-stdio OEM
+      fallback, SIGCHLD self-pipe, EventedPty/OnResize for the engine loop
+- [x] `core/src/session/mod.rs`: Session lifecycle (spawn/write/resize/scroll/
+      shutdown), lock order term → damage_scratch → damage
+- [x] `core/src/ffi/session.rs`: JNI functions
+- [x] `core/src/bridge/cell.rs`: 16-byte cell record (codepoint, tagged fg/bg,
+      frozen flag bits) + unit tests
+- [x] `core/src/bridge/snapshot.rs`: Term → flat cell buffer + damage list
+      (viewport rows, scroll-back ⇒ full redraw) + state array
+- [x] `core/src/ffi/snapshot.rs`: direct ByteBuffer + damage/state IntArrays
+- [x] `core/src/bridge/events.rs`: EventProxy/EventQueue (PTY replies handled
+      inline, the rest queued)
+- [x] `core/src/ffi/events.rs`: wakeup flag + event record drain
+- [x] `core/src/util/*`: logging (no extra dependency)
 
 ### Kotlin thin shell
 - [ ] `android/app/`: MainActivity + SurfaceView (EGL host) + JNI bindings
+      (mirror `ErrorCode`, the cell record and the event records from
+      `bridge/`)
 - [ ] Snapshot read + minimal line drawing (plain text drawing is fine; the
       goal is proving the data path end to end)
 
 ### Tests
-- [ ] `tests/session_tests.rs`: host `/bin/sh` + echo/ls end-to-end
-- [ ] `tests/snapshot_tests.rs`: grid → buffer correctness, damage boundaries
-- [ ] CI: cargo test green on every push
+- [x] `tests/session_tests.rs`: host `/bin/sh` echo + `stty size` (PTY winsize)
+      + child exit code + manager handles
+- [x] `tests/snapshot_tests.rs`: grid → buffer correctness, damage boundaries,
+      resize ⇒ full redraw, undersized buffers rejected
+- [ ] CI: cargo test green on every push (first run of this code pending)
+
+### Phase A open items (recorded, not silently dropped)
+- [ ] Evented event keys: `alacritty_terminal`'s `PTY_READ_WRITE_TOKEN` (0) and
+      `PTY_CHILD_EVENT_TOKEN` (1) are private; `pty_factory.rs` mirrors them.
+      Re-verify on every engine upgrade.
+- [ ] `color_query` records are queued but nobody answers them yet: Kotlin owns
+      the palette, so the answer belongs in the Kotlin shell (vim/`OSC 11`
+      background detection waits for a reply until it times out).
+- [ ] OSC 52 clipboard events are ignored on purpose (Phase B: `input/paste.kt`
+      + clipboard bridge).
+- [ ] Zerowidth (combining) characters are not in the cell record yet; Phase B
+      shapes text in Rust and adds a glyph reference.
+- [ ] Device acceptance below needs a physical device and the CI-built APK.
 
 ### Acceptance
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
       renders from the snapshot — device + kernel recorded here
 - [ ] `cargo test` green in CI
-- [ ] Gate 1 passed in CI
+- [x] Gate 1 passed in CI
 
 ## Phase B — Renderer + input (~2 weeks)
 
