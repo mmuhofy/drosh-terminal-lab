@@ -63,6 +63,12 @@ is closed; the install floor will keep rising — known, accepted risk.
   (user decision: prototype is terminal-only; Drosh has TOML config).
 - 2026-10-15: D13 added — no-local-builds CI policy, English commits,
   CHANGELOG discipline (user decision); all docs translated to English.
+- 2026-10-15: GitHub repo `mmuhofy/drosh-terminal-lab` (public) created; CI
+  workflow added (host fmt/clippy/test, Gate 1 cross-check, assembleDebug +
+  APK artifact). Toolchain pinned: AGP 8.9.1 (compileSdk 36 requires
+  AGP ≥ 8.9.1 — verified), Gradle 8.13, JDK 17, minSdk 26, targetSdk 28
+  (D9), arm64-v8a. No wrapper jar is committed; CI uses the runner's Gradle
+  or installs the pinned version.
 
 ## 4. Target architecture
 
