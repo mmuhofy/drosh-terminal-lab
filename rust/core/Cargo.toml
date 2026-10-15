@@ -1,0 +1,19 @@
+[package]
+name = "drosh-core"
+description = "Drosh terminal core prototype (VT engine + PTY + snapshot bridge)"
+publish = false
+
+[lib]
+# cdylib only: the Kotlin app loads it over JNI. No rlib/static consumers.
+crate-type = ["cdylib"]
+
+[dependencies]
+# VT engine — decision D2. 0.x crate: hard pin, upgrades are deliberate work.
+alacritty_terminal = "=0.26.0"
+# JNI boundary — same version Termi uses successfully on Android.
+jni = "=0.21"
+libc = "0.2"        # PTY path (D8): portable-pty does not compile for Android.
+log = "0.4"
+parking_lot = "0.12"
+
+# Phase B adds (Gate 2): rustybuzz (shaping) + swash (rasterize) — pinned then.

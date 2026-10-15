@@ -21,12 +21,18 @@
 - [x] Folder READMEs: `rust/core/`, `rust/chroot-ng/`, `android/app/`,
       `android/renderer/`, `android/input/`, `android/guest/`, `bench/`
 - [x] `CHANGELOG.md` (Keep a Changelog format)
-- [ ] `rust/` cargo workspace (profiles: LTO, strip, panic=abort)
-- [ ] `android/` Gradle skeleton (empty app module, minSdk 26, ndk arm64-v8a)
-- [ ] GitHub Actions workflow: `cargo check` (host + aarch64-linux-android),
-      `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo test`,
-      `./gradlew assembleDebug` — on every push
-- [ ] Branch strategy confirmed with user (e.g. `main` + `feat/phase-a-*`)
+- [x] `rust/` cargo workspace (profiles: LTO, strip, panic=abort) +
+      `rust/core` cdylib with pinned deps (alacritty_terminal =0.26.0, jni
+      =0.21, libc, log, parking_lot)
+- [x] `android/` Gradle skeleton (AGP 8.9.1 / Gradle 8.13 / JDK 17 /
+      compileSdk 36 / minSdk 26 / targetSdk 28 / arm64-v8a)
+- [x] GitHub Actions `.github/workflows/ci.yml` — rust-host (fmt, clippy,
+      test), Gate 1 (aarch64-linux-android cross-check), android-build
+      (assembleDebug + APK artifact)
+- [x] `.opencode/` (opencode.json + gitignored install dir)
+- [x] GitHub repo `mmuhofy/drosh-terminal-lab` (public) + remote + first push
+- [ ] Branch strategy in use: `main` (protected) + phase branches
+      (`feat/phase-a-*`, `chore/phase0-*`) — merge only with CI green
 
 ## Phase A — Get the engine onto Android (~1 week)
 
@@ -34,9 +40,10 @@
 session. (Details: PLAN.md §7-Phase A)
 
 ### Gate 1 (in CI, before phase tasks)
-- [ ] CI job: `cargo check --target aarch64-linux-android` with
-      alacritty_terminal =0.26.0, rustix-openpty, polling, vte 0.15, jni,
-      rustybuzz, swash — does it compile?
+- [ ] CI job: `cargo check --target aarch64-linux-android` — does the Phase A
+      dependency set cross-compile: alacritty_terminal =0.26.0 (pulls
+      rustix-openpty, polling, vte 0.15) + jni? (rustybuzz/swash join at
+      Gate 2 — Phase B)
 - [ ] Result recorded here (compiled / which dependency failed)
 - [ ] CI run watched to completion (`gh run watch`), status reported
 

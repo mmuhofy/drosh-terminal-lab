@@ -19,6 +19,8 @@ Android, with measurements. Once proven, the core moves into Drosh as a module.
 | [`AGENTS.md`](AGENTS.md) | Rules for agents and developers working in this repo |
 | [`CHANGELOG.md`](CHANGELOG.md) | Change history (Keep a Changelog) |
 
+[![CI](https://github.com/mmuhofy/drosh-terminal-lab/actions/workflows/ci.yml/badge.svg)](https://github.com/mmuhofy/drosh-terminal-lab/actions/workflows/ci.yml)
+
 ## Repository layout
 
 ```
