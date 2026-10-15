@@ -93,8 +93,10 @@ impl From<SnapshotError> for ErrorCode {
 
 /// Log an error and return its code.
 pub fn fail(err: impl std::fmt::Display + Into<ErrorCode>) -> ErrorCode {
+    // The message is rendered before the conversion moves `err`.
+    let message = err.to_string();
     let code = err.into();
-    log::warn!("drosh-core: {err} ({code})");
+    log::warn!("drosh-core: {message} ({code})");
     code
 }
 
@@ -113,7 +115,7 @@ pub fn session_or(handle: i64) -> FfiResult<Arc<Session>> {
 }
 
 /// Read a Java string; `null` becomes `None`.
-pub fn optional_string(env: &JNIEnv<'_>, value: &JString<'_>) -> FfiResult<Option<String>> {
+pub fn optional_string(env: &mut JNIEnv<'_>, value: &JString<'_>) -> FfiResult<Option<String>> {
     if value.is_null() {
         return Ok(None);
     }
@@ -122,7 +124,7 @@ pub fn optional_string(env: &JNIEnv<'_>, value: &JString<'_>) -> FfiResult<Optio
 }
 
 /// Read a Java string that must be present.
-pub fn required_string(env: &JNIEnv<'_>, value: &JString<'_>) -> FfiResult<String> {
+pub fn required_string(env: &mut JNIEnv<'_>, value: &JString<'_>) -> FfiResult<String> {
     optional_string(env, value)?.ok_or(ErrorCode::InvalidArgument)
 }
 

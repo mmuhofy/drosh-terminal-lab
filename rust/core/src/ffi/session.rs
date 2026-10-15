@@ -23,7 +23,7 @@ use crate::session::{GridSize, SessionConfig};
 #[no_mangle]
 #[allow(clippy::too_many_arguments)]
 pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeCreateSession<'local>(
-    env: JNIEnv<'local>,
+    mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     columns: jint,
     rows: jint,
@@ -43,10 +43,10 @@ pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeCreateSession<'l
             size,
             cell_width,
             cell_height,
-            program: required_string(&env, &program)?,
-            args: decode_lines(&required_string(&env, &args)?),
-            env: decode_env(&required_string(&env, &env_vars)?)?,
-            cwd: optional_string(&env, &cwd)?,
+            program: required_string(&mut env, &program)?,
+            args: decode_lines(&required_string(&mut env, &args)?),
+            env: decode_env(&required_string(&mut env, &env_vars)?)?,
+            cwd: optional_string(&mut env, &cwd)?,
         };
 
         manager::spawn(&config).map_err(ErrorCode::from)
