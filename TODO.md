@@ -86,7 +86,16 @@ session. (Details: PLAN.md §7-Phase A)
       + child exit code + manager handles
 - [x] `tests/snapshot_tests.rs`: grid → buffer correctness, damage boundaries,
       resize ⇒ full redraw, undersized buffers rejected
-- [ ] CI: cargo test green on every push (first run of this code pending)
+- [x] **CI green (2026-10-16)**, run
+      <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38815576100>:
+      `cargo fmt --check`, `clippy -D warnings` (host `--all-targets` and
+      `aarch64-linux-android`), `cargo check --target aarch64-linux-android`
+      and `cargo test` — **27 tests, 0 failed** (16 unit, 6 snapshot, 5 session
+      with a real PTY). The Android cross-check compiling *and* passing clippy
+      is the important half: the engine, our PTY code and the JNI layer all
+      build for `aarch64-linux-android`.
+- [ ] Still unverified: anything that needs a device — the JNI binding shape
+      (`NativeCore` static methods) and the Kotlin shell are not written yet
 
 ### Phase A open items (recorded, not silently dropped)
 - [ ] Evented event keys: `alacritty_terminal`'s `PTY_READ_WRITE_TOKEN` (0) and
@@ -104,7 +113,7 @@ session. (Details: PLAN.md §7-Phase A)
 ### Acceptance
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
       renders from the snapshot — device + kernel recorded here
-- [ ] `cargo test` green in CI
+- [x] `cargo test` green in CI (27 tests, run 38815576100)
 - [x] Gate 1 passed in CI
 
 ## Phase B — Renderer + input (~2 weeks)
