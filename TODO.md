@@ -1,151 +1,161 @@
 # TODO — Drosh Terminal Lab
 
-> Plan: [`PLAN.md`](PLAN.md) · Sıra: Faz A → B → C → D
-> Kurallar:
-> - Her fazın başındaki **Kapı (Gate)** geçilmeden fazın görevlerine başlanmaz.
-> - Bir görev yapılmadan bırakılırsa "yapılmadı + neden" notuyla burada kalır;
->   sessizce silinmez.
-> - Bir kapı geçilemezse TODO'ya Plan-B maddesi eklenir ve kullanıcıya
->   rapor edilir (varsayımla ilerlenmez).
+> Plan: [`PLAN.md`](PLAN.md) · Order: Phase A → B → C → D
+> Rules:
+> - Every phase starts with a **Gate**; the gate runs in CI (D13). No gate, no
+>   phase tasks.
+> - A task abandoned unfinished stays here as "not done + why" — never silently
+>   deleted.
+> - If a gate fails, a Plan-B item is added here and reported to the user
+>   (never proceed on assumptions).
+> - No local Rust/Gradle builds: run gates via GitHub Actions, Codespaces
+>   (SSH), or Colab. Device acceptance uses the CI-built APK artifact.
 
 ---
 
-## Faz 0 — Repo iskeleti
+## Phase 0 — Repo skeleton
 
-- [x] `drosh-terminal-lab` klasörü ve docs (README, PLAN, TODO, AGENTS)
-- [x] git init + ilk commit
-- [ ] `rust/` cargo workspace (Cargo.toml: workspace profilleri — LTO, strip,
-      panic=abort; cargo-ndk hedefleri)
-- [ ] `android/` gradle iskeleti (boş app modülü, minSdk 26, ndk arm64-v8a)
-- [ ] `.gitignore` (Rust + Android + Gradle + IDE)
-- [ ] CI iskeleti (cargo check + gradle assembleDebug) — Faz A ile birlikte
-      kurulur, ayrı görev değil
-- [ ] klasör README'leri: `rust/core/`, `rust/chroot-ng/`, `android/app/`,
+- [x] `drosh-terminal-lab` folder + docs (README, PLAN, TODO, AGENTS)
+- [x] git init + first commit
+- [x] `.gitignore` (Rust + Android + Gradle + IDE)
+- [x] Folder READMEs: `rust/core/`, `rust/chroot-ng/`, `android/app/`,
       `android/renderer/`, `android/input/`, `android/guest/`, `bench/`
+- [x] `CHANGELOG.md` (Keep a Changelog format)
+- [ ] `rust/` cargo workspace (profiles: LTO, strip, panic=abort)
+- [ ] `android/` Gradle skeleton (empty app module, minSdk 26, ndk arm64-v8a)
+- [ ] GitHub Actions workflow: `cargo check` (host + aarch64-linux-android),
+      `cargo clippy -- -D warnings`, `cargo fmt --check`, `cargo test`,
+      `./gradlew assembleDebug` — on every push
+- [ ] Branch strategy confirmed with user (e.g. `main` + `feat/phase-a-*`)
 
-## Faz A — Motoru Android'e indirmek (~1 hafta)
+## Phase A — Get the engine onto Android (~1 week)
 
-**Amaç:** alacritty_terminal'ın Android'de derlenip basit bir PTY oturumunu
-parse ettiğini kanıtlamak. (Detay: PLAN.md §7-Faz A)
+**Goal:** prove alacritty_terminal compiles for Android and parses a real PTY
+session. (Details: PLAN.md §7-Phase A)
 
-### Kapı-1 (başlamadan önce)
-- [ ] `cargo check --target aarch64-linux-android` — alacritty_terminal =0.26.0,
-      rustix-openpty, polling, vte 0.15, jni, rustybuzz, swash derleniyor mu?
-- [ ] Sonuç TODO'ya kaydedilir (derlendi / hangi bağımlılıkta çöktü)
+### Gate 1 (in CI, before phase tasks)
+- [ ] CI job: `cargo check --target aarch64-linux-android` with
+      alacritty_terminal =0.26.0, rustix-openpty, polling, vte 0.15, jni,
+      rustybuzz, swash — does it compile?
+- [ ] Result recorded here (compiled / which dependency failed)
+- [ ] CI run watched to completion (`gh run watch`), status reported
 
 ### Rust core
-- [ ] `core/Cargo.toml`: cdylib, bağımlılıklar (pin'li sürümler)
-- [ ] `core/src/lib.rs`: cdylib giriş, JNI_OnLoad, panic hook
-- [ ] `core/src/ffi/mod.rs`: hata kodu enum'u + Kotlin aynası + yardımcılar
-- [ ] `core/src/session/manager.rs`: Session yapısı (Term + EventLoop), handle tablosu
+- [ ] `core/Cargo.toml`: cdylib + pinned dependencies
+- [ ] `core/src/lib.rs`: cdylib entry, JNI_OnLoad, panic hook
+- [ ] `core/src/ffi/mod.rs`: error code enum + Kotlin mirror + helpers
+- [ ] `core/src/session/manager.rs`: Session (Term + EventLoop), handle table
 - [ ] `core/src/session/pty_factory.rs`: LocalPty — libc forkpty + setsid,
-      OEM fallback (login-tty başarısızsa slave-stdio)
-- [ ] `core/src/session/mod.rs`: spawn/write/resize/kill/close yaşam döngüsü
-- [ ] `core/src/ffi/session.rs`: JNI fonksiyonları
-- [ ] `core/src/bridge/cell.rs`: cell encoding (codepoint u32 + packed style u32)
-- [ ] `core/src/bridge/snapshot.rs`: Term → flat cell buffer + satır hasar listesi
-- [ ] `core/src/ffi/snapshot.rs`: DirectByteBuffer + damage indeksleri
-- [ ] `core/src/bridge/events.rs`: EventListener (title/bell/cwd/exit en azından)
-- [ ] `core/src/ffi/events.rs`: olay kuyruğu drenajı
+      OEM fallback (slave-stdio when login-tty spawn fails)
+- [ ] `core/src/session/mod.rs`: spawn/write/resize/kill/close lifecycle
+- [ ] `core/src/ffi/session.rs`: JNI functions
+- [ ] `core/src/bridge/cell.rs`: cell encoding (codepoint u32 + style u32)
+- [ ] `core/src/bridge/snapshot.rs`: Term → flat cell buffer + damage list
+- [ ] `core/src/ffi/snapshot.rs`: DirectByteBuffer + damage indices
+- [ ] `core/src/bridge/events.rs`: EventListener (title/bell/cwd/exit minimum)
+- [ ] `core/src/ffi/events.rs`: event queue drain
 - [ ] `core/src/util/*`: log, sync, error
 
-### Kotlin ince kabuk
-- [ ] `android/app/`: MainActivity + SurfaceView (EGL tutucu) + JNI binding
-- [ ] Snapshot okuma + ham satır çizimi (basit text/textview bile olur; hedef
-      sadece veri akışını kanıtlamak)
+### Kotlin thin shell
+- [ ] `android/app/`: MainActivity + SurfaceView (EGL host) + JNI bindings
+- [ ] Snapshot read + minimal line drawing (plain text drawing is fine; the
+      goal is proving the data path end to end)
 
-### Testler
-- [ ] `tests/session_tests.rs`: host'ta `/bin/sh` + echo/ls uçtan uca
-- [ ] `tests/snapshot_tests.rs`: grid → buffer doğruluğu, damage sınırları
+### Tests
+- [ ] `tests/session_tests.rs`: host `/bin/sh` + echo/ls end-to-end
+- [ ] `tests/snapshot_tests.rs`: grid → buffer correctness, damage boundaries
+- [ ] CI: cargo test green on every push
 
-### Kabul
-- [ ] Fiziksel cihazda `echo hello` / `ls` çıktısı snapshot üzerinden ekrana
-      çiziliyor
-- [ ] `cargo test` yeşil
-- [ ] Kapı-1 geçti
+### Acceptance
+- [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
+      renders from the snapshot — device + kernel recorded here
+- [ ] `cargo test` green in CI
+- [ ] Gate 1 passed in CI
 
-## Faz B — Renderer + input (~2 hafta)
+## Phase B — Renderer + input (~2 weeks)
 
-### Kapı-2
-- [ ] swash Android'de derleniyor ve glyph bitmap (alpha) üretiyor mu?
-- [ ] Renkli emoji yolu kararı: swash CBDT/COLR destekliyorsa atlas'e;
-      değilse Android native text overlay — karar TODO'ya yazılır
+### Gate 2 (in CI)
+- [ ] swash compiles for Android and produces glyph bitmaps (alpha)
+- [ ] Color-emoji path decision: swash CBDT/COLR → atlas, otherwise Android
+      native text overlay — decision recorded here
 
-### Rust font yığını
+### Rust font stack
 - [ ] `font/shape.rs`: rustybuzz cluster → glyph
 - [ ] `font/raster.rs`: swash rasterize (alpha + metrics)
-- [ ] `font/atlas_api.rs`: Kotlin atlas'e kayıt formatı (UV, metrics)
-- [ ] `font/fallback.rs`: fallback zinciri (ASCII → Latin → CJK → emoji)
+- [ ] `font/atlas_api.rs`: Kotlin atlas record format (UV, metrics)
+- [ ] `font/fallback.rs`: fallback chain (ASCII → Latin → CJK → emoji)
 - [ ] `font/mod.rs`: FontStack + cache
-- [ ] `ffi/font.rs`: JNI shape/rasterize istekleri
+- [ ] `ffi/font.rs`: JNI shape/rasterize requests
 
 ### Kotlin renderer
-- [ ] `renderer/atlas.kt`: bitmap atlas + 1x/1.5x/2x/3x boyut kovaları
+- [ ] `renderer/atlas.kt`: bitmap atlas + 1x/1.5x/2x/3x size buckets
 - [ ] `renderer/shader.kt`: GLES3 instancing (vertex + quad shader)
-- [ ] `renderer/quads.kt`: instanced quad batch (glyph + bg/cursor rect)
+- [ ] `renderer/quads.kt`: instanced quad batch (glyphs + bg/cursor rects)
 - [ ] `renderer/loop.kt`: Choreographer + damage-limited redraw + frame skip
-- [ ] Cursor: blink lokasyonu + shape (block/bar) — sürekli tam redraw olmadan
+- [ ] Cursor: blink + shape (block/bar) without full redraws
 
 ### Kotlin input
-- [ ] `input/encoder.kt`: escape encoder (Ctrl/Alt/Shift, oklar, Home/End,
-      PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS)
-- [ ] `input/keys.kt`: ek-anahtar satırı (Ctrl+C/D/Z, Tab, ok tuşları)
-- [ ] `input/paste.kt`: bracketed paste (2004)
-- [ ] `input/gestures.kt`: tap, double-tap (kelime), long-press (seçim modu),
-      drag (genişletme), pinch zoom (satır anchoring), momentum scroll
+- [ ] `input/encoder.kt`: xterm conventions — Ctrl/Alt/Shift, arrows,
+      Home/End, PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS
+- [ ] `input/keys.kt`: extra-keys row (Ctrl+C/D/Z, Tab, arrows)
+- [ ] `input/paste.kt`: bracketed paste (mode 2004)
+- [ ] `input/gestures.kt`: tap, double-tap (word), long-press (selection),
+      drag extend, pinch zoom (row anchoring), momentum scroll
 
-### Benchmark
-- [ ] `bench/`: frame p50/p99 + jank sayımı panosu (ekran içi overlay)
+### Benchmarks
+- [ ] `bench/`: frame p50/p99 + jank counter overlay
 
-### Kabul
+### Acceptance
 - [ ] frame p99 < 8 ms
-- [ ] tam ekran çıktıda jank yok
-- [ ] pinch-zoom keskin, seçim + kopyalama + paste çalışıyor
-- [ ] Hedef tutmazsa: ölçüm verisiyle Alacritty renderer portu Plan-B değerlendirmesi
+- [ ] no jank under full-screen output
+- [ ] crisp pinch zoom; select + copy + paste working
+- [ ] If targets are missed: evaluate the Alacritty renderer port Plan-B with
+      the measured data
 
-## Faz C — chroot-ng + Ubuntu (~1-2 hafta)
+## Phase C — chroot-ng + Ubuntu (~1–2 weeks)
 
-### Kapı-3
-- [ ] Cihazda `chroot-ng --probe`: seccomp/execmem/noexec viability raporu
-- [ ] execmem reddedilmişse file-backed yükleme modu çalışıyor mu?
+### Gate 3 (device, CI-built APK)
+- [ ] On device: `chroot-ng --probe` — seccomp/execmem/noexec viability
+- [ ] execmem denied → file-backed loading mode works
+- [ ] Device + kernel recorded here
 
 ### Vendoring + launch
-- [ ] `rust/chroot-ng/` vendoring: commit-pin + patch branch kurulumu
-- [ ] CI cross-build (aarch64) + APK'ya konulması
-- [ ] `pty_factory.rs`: chroot-ng argv eşlemesi (`-u`, `-w`, `-b`, `-E`)
-- [ ] `android/guest/`: rootfs indirme + doğrulama + extract (Drosh adaptasyonu)
+- [ ] `rust/chroot-ng/` vendoring: commit-pin + patch branch setup
+- [ ] CI cross-build (aarch64) + packaging into the APK
+- [ ] `pty_factory.rs`: chroot-ng argv mapping (`-u`, `-w`, `-b`, `-E`)
+- [ ] `android/guest/`: rootfs download + verify + extract (from Drosh)
 
-### Guest fidelity listesi
+### Guest fidelity checklist
 - [ ] `apt update && apt install -y build-essential`
-- [ ] tmux: oturum aç/kapat, pane böl
-- [ ] Ctrl+C / Ctrl+Z / Ctrl+D davranışı
-- [ ] Resize (SIGWINCH) — rotasyon ve renderer resize
-- [ ] `su` / setuid araçlar
-- [ ] `ps` (guest process görünümü)
-- [ ] shebang script'ler (postinst tarzı)
-- [ ] iki büyük çıktı testi: apt kurulumu + go derlemesi
+- [ ] tmux: open/close, split pane
+- [ ] Ctrl+C / Ctrl+Z / Ctrl+D behavior
+- [ ] Resize (SIGWINCH) — rotation + renderer resize
+- [ ] `su` / setuid tools
+- [ ] `ps` (guest process view)
+- [ ] shebang scripts (postinst-style)
+- [ ] two heavy outputs: apt install + go build
 
 ### Benchmark
-- [ ] Aynı yükler Termux (proot referans) ile aynı cihazda karşılaştırma:
-      apt install / go build / dosya ağırlıklı iş süreleri
-- [ ] Sonuçlar PLAN.md'ye işlenir
+- [ ] Identical workloads vs Termux (proot reference) on the same device:
+      apt install / go build / file-heavy work timings
+- [ ] Results recorded in PLAN.md
 
-### Kabul
-- [ ] fidelity listesi tamam
-- [ ] Benchmark kazancı sayısal dokümante
+### Acceptance
+- [ ] fidelity checklist complete
+- [ ] benchmark gains documented
 
-## Faz D — Paketleme + polish (~1 hafta)
+## Phase D — Packaging + polish (~1 week)
 
-- [ ] Release build: `.so` boyutu ≤ 8 MB (ölçülür), arm64-v8a
-- [ ] README güncel (ekran görüntüleri + benchmark sonuçları)
-- [ ] AGENTS.md gözden geçirme (Faz A–C'te öğrenilen derslerle güncelleme)
-- [ ] Prototip sonuç raporu → Drosh entegrasyon kararı
+- [ ] Release build: `.so` size ≤ 8 MB (measured), arm64-v8a
+- [ ] README updated (screenshots + benchmark results)
+- [ ] AGENTS.md review (lessons from Phases A–C)
+- [ ] Prototype verdict report → Drosh integration go/no-go
 
-## Sonraki (Drosh entegrasyonu — ayrı plan, bu repoda değil)
+## Next (Drosh integration — separate plan, not this repo yet)
 
-- [ ] `:terminal-core` modülü olarak Drosh'a taşıma
-- [ ] Block engine OSC 133 bağlantısı
-- [ ] Agent shell tool bağlantısı
-- [ ] SSH (SSHJ → FdPair/uzaktan PTY) — Drosh entegrasyon fazında
-- [ ] Mevcut Termux motorunun geri plana çekilmesi
-- [ ] DroshKeyboard ile entegrasyon
+- [ ] Move core into Drosh as `:terminal-core` module
+- [ ] Wire block engine to OSC 133 events
+- [ ] Wire agent shell tool to the new session factory
+- [ ] SSH (SSHJ → remote PTY) — Drosh integration phase
+- [ ] Retire Drosh's vendored Termux engine
+- [ ] DroshKeyboard integration

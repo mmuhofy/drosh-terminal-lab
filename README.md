@@ -1,47 +1,68 @@
 # Drosh Terminal Lab
 
-Drosh terminal uygulamasının yeni terminal çekirdeğini **Drosh'tan bağımsız**,
-ayrı ve minimal bir prototip uygulamada kanıtlamak için açılmış laboratuvar repo'su.
+A sandbox repository for proving the **next terminal core** of the Drosh
+Android terminal **outside of Drosh itself**, in a separate minimal prototype
+application.
 
-Amaç: Rust core (alacritty_terminal 0.26.0) + chroot-ng guest runtime +
-Kotlin GL ES renderer yığınının Android'de gerçekten çalıştığını ve hızlı
-olduğunu sayılarla göstermek. Kanıtlanınca bu çekirdek Drosh'a modül olarak
-taşınacak.
+The goal: prove that the Rust core (`alacritty_terminal` 0.26.0) + `chroot-ng`
+guest runtime + Kotlin GL ES renderer stack actually works and is fast on
+Android, with measurements. Once proven, the core moves into Drosh as a module.
 
-## Durum
+## Status
 
-🚧 **Planlama tamam, implementasyon başlamadı.** Dokümanlar:
+🚧 **Planning complete, implementation not started.** See:
 
-| Doküman | İçerik |
+| Document | Contents |
 |---|---|
-| [`PLAN.md`](PLAN.md) | Kararlar (D1–D12), mimari, dosya envanteri, fazlar, riskler |
-| [`TODO.md`](TODO.md) | Faz bazlı görev listesi, kapılar (gates), kabul kriterleri |
-| [`AGENTS.md`](AGENTS.md) | Bu repoda çalışan ajanların ve geliştiricilerin kuralları |
+| [`PLAN.md`](PLAN.md) | Decisions (D1–D13), architecture, file inventory, phases, risks |
+| [`TODO.md`](TODO.md) | Phase task list, gates, acceptance criteria |
+| [`AGENTS.md`](AGENTS.md) | Rules for agents and developers working in this repo |
+| [`CHANGELOG.md`](CHANGELOG.md) | Change history (Keep a Changelog) |
 
-## Klasör yapısı
+## Repository layout
 
 ```
 drosh-terminal-lab/
 ├── rust/
-│   ├── chroot-ng/        vendored subtree (Apache-2.0, commit-pin)
-│   └── core/             cdylib "libdrosh-core.so" — Rust çekirdek
+│   ├── chroot-ng/        vendored subtree (Apache-2.0, commit-pinned)
+│   └── core/             cdylib "libdrosh-core.so" — the Rust core
 ├── android/
-│   ├── app/              ince kabuk: Activity, SurfaceView/EGL, oturum yönetimi
+│   ├── app/              thin shell: Activity, SurfaceView/EGL, sessions
 │   ├── renderer/         GL ES 3.0 terminal renderer (Kotlin)
-│   ├── input/            escape encoder + jestler (Kotlin)
+│   ├── input/            escape encoder + gestures (Kotlin)
 │   └── guest/            Ubuntu rootfs bootstrap + chroot-ng launch
-└── bench/                frame/parse + guest benchmark panosu
+└── bench/                frame/parse + guest runtime benchmarks
 ```
 
-## Prototip ne DEĞİLDir
+## What this is NOT
 
-- Drosh'un kendisi değildir — block engine, agent, SSH host yönetimi, tema
-  mağazası, PIN, çok dillilik **kapsam dışıdır**.
-- Konfig sistemi yoktur: sabit makul varsayılanlarla çalışır (gerçek Drosh'ta
-  TOML config sistemi var ve orada kalır).
-- SSH kapsam dışıdır (prototipte ne SSHJ bağlantısı ne de FdPair trait'i).
+- Not Drosh itself — block engine, agent, SSH host management, theme store,
+  PIN lock, i18n are **out of scope**.
+- No configuration system: it runs on fixed, sensible defaults (the real Drosh
+  has a TOML config system, which stays there).
+- SSH is out of scope entirely (no SSHJ integration, no FdPair trait).
 
-## Lisans
+## Build policy (read first)
 
-Drosh (GPL-3.0) ile aynı lisans altında taşınır. Bağımlılıklar:
-alacritty_terminal ve chroot-ng Apache-2.0.
+**No local Rust or Gradle builds.** Everything compiles in CI:
+
+- **GitHub Actions** — every push; gates (compile checks, clippy, fmt, tests,
+  APK assembly) run here
+- **GitHub Codespaces** (via SSH) — when interactive work is needed
+- **Google Colab** — alternative remote environment
+
+After every push, the CI result is awaited with the GitHub CLI:
+
+```sh
+gh run watch            # or: gh run view <run-id> --log-failed
+```
+
+Device testing uses the **CI-built APK artifact**: download it from the
+Actions run, install on the device, test, and record the result (device +
+kernel info) in `TODO.md`. See [`AGENTS.md`](AGENTS.md) §10 for the full
+policy.
+
+## License
+
+Shipped under the same license as Drosh (GPL-3.0). Dependencies:
+`alacritty_terminal` and `chroot-ng` are Apache-2.0.

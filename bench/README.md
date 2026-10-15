@@ -1,11 +1,12 @@
-# bench — ölçüm panosu
+# bench — measurement dashboard
 
-İki ölçüm ailesi:
+Two measurement families:
 
-1. **Render/parse (Faz B):** frame p50/p99, jank sayımı, parse throughput
-   (ekran içi overlay olarak gösterilir; "hissetmek" değil, "ölçmek").
-2. **Guest runtime (Faz C):** aynı yüklerin Termux (proot referans) ile aynı
-   cihazda karşılaştırması — `apt install`, `go build`, dosya ağırlıklı işler.
+1. **Render/parse (Phase B):** frame p50/p99, jank count, parse throughput
+   (shown as an in-app overlay — measure, don't guess).
+2. **Guest runtime (Phase C):** identical workloads compared against Termux
+   (proot reference) on the same device — `apt install`, `go build`,
+   file-heavy work.
 
-Sonuçlar [`../PLAN.md`](../PLAN.md)'ye işlenir. Ölçüm olmadan performans
-iddiası yapılmaz (AGENTS.md kural 2).
+Results are recorded in [`../PLAN.md`](../PLAN.md). No performance claim is
+made without measurements (AGENTS.md rule 2).

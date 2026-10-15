@@ -1,15 +1,16 @@
-# android/input — escape encoder + jestler
+# android/input — escape encoder + gestures
 
-Dokunma ve klavye girdisini terminalin anladığı byte'lara çeviren katman.
+Turns touch and keyboard input into bytes the terminal understands.
 
-**Bileşenler (Faz B):**
-- `encoder.kt` — xterm convention'ları: Ctrl/Alt/Shift, oklar, Home/End,
-  PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS (Alacritty `input/keyboard.rs`
-  desen)
-- `keys.kt` — ek-anahtar satırı (Ctrl+C/D/Z, Tab, ok tuşları)
+**Components (Phase B):**
+
+- `encoder.kt` — xterm conventions: Ctrl/Alt/Shift, arrows, Home/End,
+  PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS (Alacritty's
+  `input/keyboard.rs` pattern)
+- `keys.kt` — extra-keys row (Ctrl+C/D/Z, Tab, arrows)
 - `paste.kt` — bracketed paste (mode 2004)
-- `gestures.kt` — tap, double-tap (kelime seç), long-press (seçim modu),
-  drag (genişletme), pinch zoom (satır anchoring), momentum scroll
+- `gestures.kt` — tap, double-tap (word), long-press (selection mode), drag
+  (extend), pinch zoom (row anchoring), momentum scroll
 
-Not: soft-keyboard mapping bu repoda ilk kez yazılıyor — DroshKeyboard
-entegrasyonu Drosh entegrasyon fazında olacak.
+Note: the soft-keyboard mapping is written here for the first time —
+DroshKeyboard integration happens in the Drosh integration phase.

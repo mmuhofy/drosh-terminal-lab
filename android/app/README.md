@@ -1,11 +1,11 @@
-# android/app — ince kabuk
+# android/app — thin shell
 
-Terminali çizen yer **değil**; onu yaşatan platform katmanı:
+**Not** where the terminal is drawn; the platform layer that keeps it alive:
 
-- `MainActivity` — oturum ekranı, izinler, lifecycle
-- `SurfaceView` + EGL context sahibi (Rust renderer'ın çizeceği yüzey)
-- Oturum yönetimi (çoklu tab/oturum)
-- JNI binding (`libdrosh-core.so`)
+- `MainActivity` — session screen, permissions, lifecycle
+- `SurfaceView` + EGL context host (the surface the renderer draws into)
+- Session management (multiple tabs/sessions)
+- JNI bindings (`libdrosh-core.so`)
 
-Faz A'da oluşturulur. Renderer: [`../renderer`](../renderer), girdi:
+Created in Phase A. Renderer: [`../renderer`](../renderer); input:
 [`../input`](../input).

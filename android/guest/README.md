@@ -1,12 +1,12 @@
 # android/guest — rootfs bootstrap + chroot-ng launch
 
-Ubuntu 24.04 userspace'ini chroot-ng altında çalıştırmak için gereken Android
-tarafı işler.
+The Android-side work needed to run an Ubuntu 24.04 userspace under chroot-ng.
 
-**Bileşenler (Faz C):**
-- Rootfs indirme (HTTPS) + bütünlük doğrulama + extract
-- chroot-ng launch: argv eşlemesi (`-u`, `-w`, `-b`, `-E`) — Rust tarafındaki
-  `pty_factory.rs` ile birlikte
-- Foreground session'lar için bildirim (Android'in oyun kuralları)
+**Components (Phase C):**
 
-Drosh'taki bootstrap akışı burada adapte edilecek.
+- Rootfs download (HTTPS) + integrity verification + extraction
+- chroot-ng launch: argv mapping (`-u`, `-w`, `-b`, `-E`) — together with
+  `pty_factory.rs` on the Rust side
+- Foreground-service notifications for long-running sessions (Android rules)
+
+The bootstrap flow is adapted from Drosh's existing implementation.

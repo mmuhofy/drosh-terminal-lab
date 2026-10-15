@@ -1,10 +1,10 @@
-# Rust çekirdek (`libdrosh-core.so`)
+# Rust core (`libdrosh-core.so`)
 
-Drosh terminal çekirdeğinin Rust kısmı — cdylib olarak üretilir, Android tarafı
-JNI ile konuşur.
+The Rust half of the Drosh terminal core — built as a cdylib; the Android app
+talks to it over JNI.
 
-**İçerik (Faz A'da yazılır):** `ffi/` (JNI sınırı), `session/` (Term + EventLoop +
-PTY), `bridge/` (snapshot + olaylar), `font/` (rustybuzz + swash).
+**Contents (written in Phase A):** `ffi/` (JNI boundary), `session/` (Term +
+EventLoop + PTY), `bridge/` (snapshot + events), `font/` (rustybuzz + swash).
 
-**Bağımlılıklar:** `alacritty_terminal =0.26.0` (VT motoru), `jni`, `libc`,
-`rustybuzz`, `swash`. Ayrıntı: [`../../PLAN.md`](../../PLAN.md) §5.
+**Dependencies:** `alacritty_terminal =0.26.0` (VT engine), `jni`, `libc`,
+`rustybuzz`, `swash`. Details: [`../../PLAN.md`](../../PLAN.md) §5.
