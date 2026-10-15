@@ -2,7 +2,7 @@
 
 use alacritty_terminal::event::VoidListener;
 use alacritty_terminal::term::{Config, Term};
-use alacritty_terminal::vte::ansi::Processor;
+use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
 use drosh_core::bridge::cell::CellRecord;
 use drosh_core::bridge::cell::CELL_BYTES;
@@ -25,7 +25,9 @@ fn new_term() -> Term<VoidListener> {
 }
 
 fn feed(term: &mut Term<VoidListener>, bytes: &[u8]) {
-    Processor::new().advance(term, bytes);
+    // The type parameter's default does not help inference in `Processor::new()`.
+    let mut parser: Processor<StdSyncHandler> = Processor::new();
+    parser.advance(term, bytes);
 }
 
 fn snapshot(term: &mut Term<VoidListener>, buffer: &mut [u8], damage: &mut [i32]) -> i32 {
