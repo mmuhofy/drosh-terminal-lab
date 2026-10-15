@@ -69,6 +69,24 @@ is closed; the install floor will keep rising — known, accepted risk.
   AGP ≥ 8.9.1 — verified), Gradle 8.13, JDK 17, minSdk 26, targetSdk 28
   (D9), arm64-v8a. No wrapper jar is committed; CI uses the runner's Gradle
   or installs the pinned version.
+- 2026-10-16: Phase A Rust core written. Two corrections to earlier
+  assumptions, both verified against the sources rather than memory:
+  1. §8 item 2 is wrong as written — alacritty's `tty::new` calls
+     `ShellUser::from_env()` (and thus `getpwuid_r`) *before* it looks at an
+     explicit shell, so that path is not "irrelevant when a shell is passed".
+     It does not matter for us: `session/pty_factory.rs` does not use
+     `alacritty_terminal::tty` at all (D8), it spawns the child itself.
+  2. The engine's event-loop keys (`PTY_READ_WRITE_TOKEN` = 0,
+     `PTY_CHILD_EVENT_TOKEN` = 1) are `pub(crate)`, so an external
+     `EventedPty` implementation has to mirror the values. Recorded in
+     TODO.md as re-check-on-upgrade.
+  Also decided: the cell record is 16 bytes (codepoint u32, tagged fg/bg u32,
+  frozen flag bits u16, reserved u16) — §5 said "codepoint + packed style",
+  which cannot carry colors; the wire format is documented in
+  `bridge/cell.rs` and frozen for the prototype.
+  Rustfmt: `rust/rustfmt.toml` uses stable options only
+  (`use_small_heuristics = "Max"`, as alacritty does) because CI runs stable
+  rustfmt, which ignores nightly-only options.
 
 ## 4. Target architecture
 
@@ -110,10 +128,10 @@ drained into Kotlin through a separate queue.
 | `core/src/ffi/font.rs` | ~200 | shape+rasterize requests |
 | `core/src/ffi/events.rs` | ~150 | event queue drain |
 | `core/src/session/mod.rs` | ~300 | Session: Term + EventLoop + PTY + channels |
-| `core/src/session/pty_factory.rs` | ~300 | LocalPty (chroot-ng argv) — libc forkpty + setsid |
-| `core/src/session/manager.rs` | ~300 | handle table, session lifecycle |
-| `core/src/bridge/snapshot.rs` | ~350 | Term → flat cell buffer + damage computation |
-| `core/src/bridge/cell.rs` | ~120 | cell encoding (codepoint u32 + packed style u32) |
+| `core/src/session/pty_factory.rs` | ~330 | LocalPty — posix_openpt + TIOCGPTPEER + login-tty child (setsid/TIOCSCTTY/dup2), OEM fallback |
+| `core/src/session/manager.rs` | ~130 | handle table, session lifecycle |
+| `core/src/bridge/snapshot.rs` | ~330 | Term → flat cell buffer + damage computation |
+| `core/src/bridge/cell.rs` | ~210 | 16-byte cell record: codepoint u32, tagged fg/bg u32, frozen flag bits u16, reserved u16 |
 | `core/src/bridge/events.rs` | ~300 | EventListener implementation → event queue |
 | `core/src/font/mod.rs` | ~200 | FontStack: shape + rasterize + cache |
 | `core/src/font/shape.rs` | ~200 | rustybuzz: cluster → glyph |
@@ -154,8 +172,9 @@ session.
   jni, rustybuzz, swash? Result recorded in TODO.md
 - `ffi/` + `session/` + `bridge/` implementation (Plan-B: if rustix-openpty
   fails, the tty layer moves to raw libc)
-- PTY: spawn `/system/bin/sh` (libc forkpty + setsid; Termi's OEM fallback:
-  slave-stdio path when login-tty spawn fails)
+- PTY: spawn `/system/bin/sh` with raw libc (posix_openpt + TIOCGPTPEER +
+  login-tty child; Termi's OEM fallback: slave-stdio path when the login-tty
+  spawn fails)
 - Kotlin thin shell: Activity + SurfaceView + JNI binding + raw snapshot
   rendering (goal is proving the data path, not quality)
 - Host tests: cargo test (golden VT, snapshot, PTY end-to-end)
@@ -216,9 +235,12 @@ These are **not yet verified** claims; test them in order before trusting
 them (AGENTS.md rule 2):
 
 1. alacritty_terminal 0.26.0 cross-compiles for `aarch64-linux-android`
-   (rustix-openpty + polling + vte 0.15) — Phase A Gate 1
-2. Alacritty's `tty/unix.rs` default-shell/getpwuid path is irrelevant when an
-   explicit shell is passed — verify in Phase A
+   (rustix-openpty + polling + vte 0.15) — Phase A Gate 1 (passed 2026-10-15)
+2. Alacritty's `tty/unix.rs` default-shell/getpwuid path — **corrected
+   2026-10-16**: `from_env()` runs even when an explicit shell is passed, so
+   that path is *not* irrelevant for callers of `tty::new`. The prototype
+   sidesteps it by not using `alacritty_terminal::tty` (D8): `pty_factory.rs`
+   spawns the child itself.
 3. swash compiles for Android and produces color-emoji (CBDT/COLR) bitmaps —
    Phase B Gate 2; otherwise the emoji overlay path
 4. chroot-ng probe result + file-backed mode — Phase C Gate 3

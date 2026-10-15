@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Phase A Rust core (`rust/core`): the JNI boundary (`ffi/`), the session layer
+  (`session/`: PTY + engine + event loop + handle table) and the data path to
+  Kotlin (`bridge/`: 16-byte cell records, damage list, event queue).
+  - PTY: raw libc — `posix_openpt` + `TIOCGPTPEER`, child via `setsid` +
+    `TIOCSCTTY` + `dup2` in `pre_exec`, with a slave-as-stdio fallback for OEM
+    kernels (D8).
+  - Nothing throws across JNI: every `native*` function returns a handle or a
+    frozen `ErrorCode`, and the panic hook reports through `log`.
+  - `polling` and `signal-hook` added at the engine's own versions, so the tree
+    keeps a single copy of each crate.
+- Host tests: grid → buffer correctness, damage boundaries and resize behaviour
+  (`tests/snapshot_tests.rs`); a real PTY session covering shell output, PTY
+  resize (`stty size`) and child exit codes (`tests/session_tests.rs`).
+- `rust/rustfmt.toml` — stable options only, matching the density alacritty
+  formats with.
+
+### Changed
+
+- `AGENTS.md` §9 and `PLAN.md` now describe the PTY path that is actually
+  implemented (raw libc, not `forkpty`).
+- `PLAN.md` §8 item 2 corrected: alacritty's `tty::new` calls `getpwuid_r` even
+  when an explicit shell is passed — irrelevant here because the prototype
+  spawns the child itself.
+- The cell record is 16 bytes (codepoint, tagged fg/bg, frozen flag bits,
+  reserved); the sketch in `PLAN.md` §5 could not carry colours.
+
 ## [0.1.0] - 2026-10-16
 
 ### Added

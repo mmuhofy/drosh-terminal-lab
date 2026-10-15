@@ -98,9 +98,11 @@ Concrete examples:
 - **FFI boundary:** no `unwrap()`/panic across JNI; panic hook installed;
   handles are opaque positive IDs (never raw pointers — Termi's
   "-1905618432" lesson); the Kotlin mirror of error codes is always in sync.
-- **PTY:** libc forkpty path (portable-pty does not compile for Android —
-  this is a verified fact, do not re-litigate). OEM fallback: slave-stdio path
-  when the login-tty spawn fails.
+- **PTY:** raw libc PTY path (portable-pty does not compile for Android —
+  this is a verified fact, do not re-litigate): `posix_openpt` + `grantpt`/
+  `unlockpt`, slave through `TIOCGPTPEER`, child via `setsid` + `TIOCSCTTY` +
+  `dup2` in `pre_exec`. OEM fallback: slave-as-stdio path when the login-tty
+  spawn fails.
 - **chroot-ng:** vendored subtree, commit-pinned; Drosh-specific patches in a
   separate patch branch; generic fixes go upstream.
 - **Kotlin renderer:** GL ES 3.0; zero-allocation in the render loop;

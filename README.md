@@ -10,7 +10,10 @@ Android, with measurements. Once proven, the core moves into Drosh as a module.
 
 ## Status
 
-🚧 **Planning complete, implementation not started.** See:
+🚧 **Phase A — the Rust core is implemented; CI is the verification.**
+PTY + `alacritty_terminal` + snapshot bridge are in `rust/core` with host tests.
+Next up: the Kotlin thin shell and device acceptance (see [`TODO.md`](TODO.md)).
+The documents:
 
 | Document | Contents |
 |---|---|
