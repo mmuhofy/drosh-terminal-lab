@@ -40,12 +40,15 @@
 session. (Details: PLAN.md §7-Phase A)
 
 ### Gate 1 (in CI, before phase tasks)
-- [ ] CI job: `cargo check --target aarch64-linux-android` — does the Phase A
+- [x] CI job: `cargo check --target aarch64-linux-android` — does the Phase A
       dependency set cross-compile: alacritty_terminal =0.26.0 (pulls
       rustix-openpty, polling, vte 0.15) + jni? (rustybuzz/swash join at
       Gate 2 — Phase B)
-- [ ] Result recorded here (compiled / which dependency failed)
-- [ ] CI run watched to completion (`gh run watch`), status reported
+- [x] **Result: PASSED (2026-10-15)** — run
+      <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38807056087>;
+      cross-check + clippy for aarch64-linux-android green. All three CI jobs
+      green (host fmt/clippy/test, Gate 1, assembleDebug).
+- [x] CI run watched to completion (`gh run watch`), status reported
 
 ### Rust core
 - [ ] `core/Cargo.toml`: cdylib + pinned dependencies
