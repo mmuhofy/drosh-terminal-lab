@@ -3,7 +3,7 @@
 [sylirre/chroot-ng](https://github.com/sylirre/fake-chroot-ng) kaynağının
 **commit-pin'lenmiş** kopyası — Apache-2.0. proot'un yerini alan guest runtime.
 
-- Pin: Faz C'nde sabitlenecek (henüz değil — önce upstream ile çalışıldığını
+- Pin: Faz C'de sabitlenecek (henüz değil — önce upstream ile çalışıldığını
   doğrulayacağız).
 - Drosh'a özgü yamalar ayrı bir patch branch'inde tutulur; generic düzeltmeler
   upstream'a gönderilir.

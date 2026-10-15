@@ -68,7 +68,7 @@ kaynak PLAN.md'ye veya TODO'ya yazılır. Araştırma sonucu mevcut kararı
 
 ## 7. Sorular sor, sonra raporla. Sessiz ilerleme.
 
-- Kritik karar noktalarında dur ve sor (burns: kapsam, lisans, hedef cihaz,
+- Kritik karar noktalarında dur ve sor (örnek: kapsam, lisans, hedef cihaz,
   performans hedefi, geriye dönük uyumluluk).
 - Sorunun cevabı sonrası: kararı uygula ve **ne yaptığını tek paragrafta
   rapor et**. Kullanıcı mikro-yönetim yapmak zorunda kalmasın.
