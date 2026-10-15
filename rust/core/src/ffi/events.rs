@@ -8,7 +8,7 @@ use jni::sys::{jboolean, jlong};
 use jni::JNIEnv;
 
 use crate::bridge::events::SessionEvent;
-use crate::ffi::{session_or, ErrorCode};
+use crate::ffi::session_or;
 
 /// Was there a `Wakeup` since the last call?
 ///
@@ -69,6 +69,7 @@ fn sanitize(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ffi::ErrorCode;
 
     #[test]
     fn records_are_line_safe_and_stable() {

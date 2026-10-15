@@ -125,8 +125,8 @@ impl Session {
         validate(config)?;
 
         let window_size = WindowSize {
-            num_lines: config.size.rows as u16,
-            num_cols: config.size.columns as u16,
+            num_lines: config.size.rows,
+            num_cols: config.size.columns,
             cell_width: config.cell_width,
             cell_height: config.cell_height,
         };
