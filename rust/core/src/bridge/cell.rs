@@ -136,9 +136,7 @@ impl CellRecord {
 /// Pack a vte color into the wire format.
 pub fn encode_color(color: Color) -> u32 {
     match color {
-        Color::Named(named) => {
-            (COLOR_TAG_NAMED << COLOR_TAG_SHIFT) | (named as u32 & 0xff)
-        }
+        Color::Named(named) => (COLOR_TAG_NAMED << COLOR_TAG_SHIFT) | (named as u32 & 0xff),
         Color::Indexed(index) => (COLOR_TAG_INDEXED << COLOR_TAG_SHIFT) | u32::from(index),
         Color::Spec(rgb) => {
             let value = (u32::from(rgb.r) << 16) | (u32::from(rgb.g) << 8) | u32::from(rgb.b);

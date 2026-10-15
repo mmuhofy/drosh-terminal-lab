@@ -14,9 +14,9 @@ pub mod snapshot;
 
 use std::sync::Arc;
 
-use jni::JNIEnv;
 use jni::objects::{JIntArray, JString};
 use jni::sys::jint;
+use jni::JNIEnv;
 
 use crate::bridge::snapshot::SnapshotError;
 use crate::session::manager;

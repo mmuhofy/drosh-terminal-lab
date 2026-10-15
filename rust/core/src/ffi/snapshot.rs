@@ -7,12 +7,12 @@
 
 use std::slice;
 
-use jni::JNIEnv;
 use jni::objects::{JByteBuffer, JClass, JIntArray};
 use jni::sys::{jint, jlong};
+use jni::JNIEnv;
 
 use crate::bridge::snapshot::STATE_LEN;
-use crate::ffi::{ErrorCode, FfiResult, finish, int_array_len, session_or, write_int_array};
+use crate::ffi::{finish, int_array_len, session_or, write_int_array, ErrorCode, FfiResult};
 
 /// Copy the damaged cells into `cells` and the damage list into `damage_out`.
 ///

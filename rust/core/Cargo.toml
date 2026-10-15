@@ -1,6 +1,9 @@
 [package]
 name = "drosh-core"
 description = "Drosh terminal core prototype (VT engine + PTY + snapshot bridge)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 publish = false
 
 [lib]

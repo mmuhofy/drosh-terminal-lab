@@ -1,11 +1,11 @@
 //! `native*` functions for the session lifecycle.
 
-use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JString};
 use jni::sys::{jint, jlong};
+use jni::JNIEnv;
 
 use crate::ffi::{
-    ErrorCode, FfiResult, fail, finish, optional_string, required_string, session_or,
+    fail, finish, optional_string, required_string, session_or, ErrorCode, FfiResult,
 };
 use crate::session::manager;
 use crate::session::{GridSize, SessionConfig};

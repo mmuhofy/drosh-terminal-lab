@@ -17,7 +17,7 @@ use std::ffi::c_void;
 use std::sync::Once;
 
 use jni::objects::{JClass, JString};
-use jni::sys::{JNI_VERSION_1_6, jint};
+use jni::sys::{jint, JNI_VERSION_1_6};
 use jni::{JNIEnv, JavaVM};
 
 /// Called by the JVM when the library is loaded.

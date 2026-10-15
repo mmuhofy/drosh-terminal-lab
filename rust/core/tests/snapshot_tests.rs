@@ -6,14 +6,14 @@ use alacritty_terminal::vte::ansi::Processor;
 
 use drosh_core::bridge::cell::CellRecord;
 use drosh_core::bridge::cell::CELL_BYTES;
-use drosh_core::bridge::snapshot::DAMAGE_FULL;
-use drosh_core::bridge::snapshot::STATE_LEN;
-use drosh_core::bridge::snapshot::SnapshotError;
 use drosh_core::bridge::snapshot::cursor_shape;
 use drosh_core::bridge::snapshot::damage_out_len;
 use drosh_core::bridge::snapshot::state_index;
 use drosh_core::bridge::snapshot::take_snapshot;
 use drosh_core::bridge::snapshot::write_state;
+use drosh_core::bridge::snapshot::SnapshotError;
+use drosh_core::bridge::snapshot::DAMAGE_FULL;
+use drosh_core::bridge::snapshot::STATE_LEN;
 use drosh_core::session::GridSize;
 
 const COLUMNS: usize = 20;

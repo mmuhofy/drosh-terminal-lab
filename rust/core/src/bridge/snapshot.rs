@@ -11,9 +11,7 @@ use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Cell;
-use alacritty_terminal::term::{
-    LineDamageBounds, Term, TermDamage, TermMode, point_to_viewport,
-};
+use alacritty_terminal::term::{point_to_viewport, LineDamageBounds, Term, TermDamage, TermMode};
 use alacritty_terminal::vte::ansi::CursorShape;
 
 use crate::bridge::cell::{CellRecord, CELL_BYTES};

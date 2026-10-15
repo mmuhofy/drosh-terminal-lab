@@ -3,12 +3,12 @@
 //! `Wakeup` (the frame trigger) is a flag, not a queue entry: it arrives with
 //! every PTY read. The rest are rare and cross as newline-separated records.
 
-use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jlong};
+use jni::JNIEnv;
 
 use crate::bridge::events::SessionEvent;
-use crate::ffi::{ErrorCode, session_or};
+use crate::ffi::{session_or, ErrorCode};
 
 /// Was there a `Wakeup` since the last call?
 ///

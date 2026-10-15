@@ -17,7 +17,7 @@ use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{Config, LineDamageBounds, Term};
 
-use crate::bridge::events::{DEFAULT_QUEUE_CAPACITY, EventProxy, EventQueue, SessionEvent};
+use crate::bridge::events::{EventProxy, EventQueue, SessionEvent, DEFAULT_QUEUE_CAPACITY};
 use crate::bridge::snapshot;
 use crate::session::pty_factory::{LocalPty, PtyConfig};
 
@@ -208,12 +208,8 @@ impl Session {
             return Err(SessionError::InvalidArgument(format!("invalid grid size {size:?}")));
         }
 
-        let window_size = WindowSize {
-            num_lines: size.rows,
-            num_cols: size.columns,
-            cell_width,
-            cell_height,
-        };
+        let window_size =
+            WindowSize { num_lines: size.rows, num_cols: size.columns, cell_width, cell_height };
 
         *lock(&self.size) = window_size;
         {
@@ -321,7 +317,9 @@ fn validate(config: &SessionConfig) -> Result<(), SessionError> {
 
     for (key, value) in &config.env {
         if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
-            return Err(SessionError::InvalidArgument(format!("invalid environment entry {key:?}")));
+            return Err(SessionError::InvalidArgument(format!(
+                "invalid environment entry {key:?}"
+            )));
         }
     }
 
