@@ -3,8 +3,6 @@ package dev.drosh.lab
 import android.app.Activity
 import android.opengl.GLSurfaceView
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.view.GestureDetector
 import android.view.KeyEvent
@@ -21,6 +19,7 @@ import dev.drosh.lab.input.Encoder
 import dev.drosh.lab.input.ExtraKeysView
 import dev.drosh.lab.input.TerminalInputView
 import dev.drosh.lab.render.CellMetrics
+import dev.drosh.lab.render.FrameLoop
 import dev.drosh.lab.render.GlyphAtlas
 import dev.drosh.lab.render.TerminalRenderer
 
@@ -45,34 +44,27 @@ class MainActivity : Activity() {
     /** Pixel size the glyphs are rasterised at. */
     private var fontPx = 0f
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var blinkMillis = 0L
     private var scrollAccumulator = 0f
     private var exited = false
 
-    private val framePoller = object : Runnable {
-        override fun run() {
-            if (session.pollWakeup()) {
-                surface.requestRender()
-                drainEvents()
-            }
-
-            renderer.lastGlError?.let { message ->
-                renderer.lastGlError = null
-                toast("renderer: $message")
-            }
-
-            blinkMillis += POLL_MILLIS
-            if (blinkMillis >= BLINK_MILLIS) {
-                blinkMillis = 0
-                renderer.cursorVisible = !renderer.cursorVisible
-                surface.requestRender()
-                drainEvents()
-            }
-
-            handler.postDelayed(this, POLL_MILLIS)
-        }
-    }
+    /**
+     * The frame pump: the engine's wakeup flag is polled once per vsync instead
+     * of every 32 ms, so output reaches the screen on the next refresh rather
+     * than up to a poll interval later.
+     */
+    private val frameLoop = FrameLoop(
+        onWakeup = {
+            reportGlErrors()
+            surface.requestRender()
+            drainEvents()
+        },
+        onBlink = {
+            reportGlErrors()
+            renderer.cursorVisible = !renderer.cursorVisible
+            surface.requestRender()
+            drainEvents()
+        },
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -168,12 +160,12 @@ class MainActivity : Activity() {
             return
         }
         surface.onResume()
-        handler.removeCallbacks(framePoller)
-        handler.postDelayed(framePoller, POLL_MILLIS)
+        frameLoop.poll = { session.pollWakeup() }
+        frameLoop.start()
     }
 
     override fun onPause() {
-        handler.removeCallbacks(framePoller)
+        frameLoop.stop()
         if (::surface.isInitialized) {
             surface.onPause()
         }
@@ -181,11 +173,19 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(framePoller)
+        frameLoop.stop()
         if (::session.isInitialized) {
             session.close()
         }
         super.onDestroy()
+    }
+
+    /** A GL failure is worth a toast: the screen would otherwise just be wrong. */
+    private fun reportGlErrors() {
+        renderer.lastGlError?.let { message ->
+            renderer.lastGlError = null
+            toast("renderer: $message")
+        }
     }
 
     /**
@@ -358,9 +358,6 @@ class MainActivity : Activity() {
     private companion object {
         const val TAG = "DroshLab"
         const val SHELL = "/system/bin/sh"
-
-        const val POLL_MILLIS = 32L
-        const val BLINK_MILLIS = 500L
 
         /** Font size in dp; the cell size and the whole grid follow from it. */
         const val FONT_SIZE_DP = 12f
