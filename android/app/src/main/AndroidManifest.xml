@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The bench collector runs on the device itself (its localhost is the only
+         address a device can serve from), so the app needs to open a *loopback*
+         socket. Android requires INTERNET for any socket, including 127.0.0.1;
+         `bench/BenchUploader.kt` is the only code that uses it and its endpoints
+         are loopback constants. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="@string/app_name"
         android:theme="@style/AppTheme"

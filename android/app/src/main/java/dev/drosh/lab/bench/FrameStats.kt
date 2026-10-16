@@ -1,110 +1,167 @@
 package dev.drosh.lab.bench
 
 /**
- * Frame timings, for the Phase B acceptance numbers ("frame p99 < 8 ms; no jank
+ * Frame timings for the Phase B acceptance numbers ("frame p99 < 8 ms; no jank
  * under full-screen output").
  *
- * The total is split into the three phases a frame is made of, because the
- * first device run showed a number (`p50 114 ms`) nobody could attribute:
+ * **Monotone counters, not a sliding window.** The first version kept a ring of
+ * the last 240 frames and printed its percentiles twice a second; a number that
+ * changes while it is being read cannot be reported — which is exactly what
+ * happened. These counters only ever grow, so the line a user reads is a superset
+ * of the line they read a moment ago, and "freeze" turns it into an artefact that
+ * can be sent as-is (the app logs it under `DroshLabBench`).
+ *
+ * The frame is also split into the phases it is made of, because the first device
+ * run produced a number (`p50 114 ms`) nobody could attribute:
  *
  * - **pump**: the snapshot call. It takes the grid lock, so it also waits while
- *   the parser is busy — a stress test that saturates the PTY shows up here.
- * - **build**: turning damaged rows into vertices.
- * - **draw**: the GL submit for those rows.
+ *   the parser is busy.
+ * - **build**: turning damaged rows into vertices and uploading them.
+ * - **draw**: the GL submit.
  *
- * Only frames that actually drew are recorded: GLSurfaceView runs in
- * `RENDERMODE_WHEN_DIRTY`, so idle time between frames says nothing. A frame
- * counts as **janky** when the gap since the previous drawn frame exceeded two
- * refreshes.
- *
- * Kept small and allocation-free on the hot path: ring buffers of floats,
- * sorted only when a summary is asked for.
+ * Only frames that actually drew are counted: GLSurfaceView runs in
+ * `RENDERMODE_WHEN_DIRTY`, so idle time between frames says nothing. A frame is
+ * **janky** when the gap since the previous drawn frame exceeded two refreshes.
  */
-internal class FrameStats(private val capacity: Int = 240) {
+internal class FrameStats {
 
-    private val total = FloatArray(capacity)
-    private val pump = FloatArray(capacity)
-    private val build = FloatArray(capacity)
-    private val draw = FloatArray(capacity)
-    private val interval = FloatArray(capacity)
+    /** Work buckets, milliseconds: `<2`, `<4`, `<8`, `<16`, `<33`, `>=33`. */
+    private val work = IntArray(BUCKETS)
 
-    private var count = 0
-    private var next = 0
-    private var lastFrameNanos = 0L
+    /** Frame-interval buckets, same edges. */
+    private val interval = IntArray(BUCKETS)
+
+    private var frames = 0
     private var longs = 0
+    private var maxWork = 0f
+    private var maxInterval = 0f
+    private var pumpTotal = 0f
+    private var buildTotal = 0f
+    private var drawTotal = 0f
+    private var lastFrameNanos = 0L
 
-    /** Frames drawn since the last reset. */
-    var frames = 0
+    /** While frozen, [record] is ignored: the numbers stop moving. */
+    var isFrozen = false
         private set
 
-    /**
-     * Record one drawn frame.
-     *
-     * The timestamps are phase boundaries taken inside the frame:
-     * `startNanos` … `pumpEndNanos` … `buildEndNanos` … `drawEndNanos`.
-     */
     fun record(startNanos: Long, pumpEndNanos: Long, buildEndNanos: Long, drawEndNanos: Long) {
-        total[next] = millis(startNanos, drawEndNanos)
-        pump[next] = millis(startNanos, pumpEndNanos)
-        build[next] = millis(pumpEndNanos, buildEndNanos)
-        draw[next] = millis(buildEndNanos, drawEndNanos)
+        if (isFrozen) {
+            return
+        }
+
+        val pumpMillis = millis(startNanos, pumpEndNanos)
+        val buildMillis = millis(pumpEndNanos, buildEndNanos)
+        val drawMillis = millis(buildEndNanos, drawEndNanos)
+        val total = pumpMillis + buildMillis + drawMillis
+
+        pumpTotal += pumpMillis
+        buildTotal += buildMillis
+        drawTotal += drawMillis
+        frames += 1
+        maxWork = maxOf(maxWork, total)
+        work[bucket(total)] += 1
 
         if (lastFrameNanos != 0L) {
             val gap = millis(lastFrameNanos, startNanos)
-            interval[next] = gap
+            maxInterval = maxOf(maxInterval, gap)
+            interval[bucket(gap)] += 1
             if (gap > JANK_MILLIS) {
                 longs += 1
             }
-        } else {
-            interval[next] = 0f
         }
-
         lastFrameNanos = startNanos
-        next = (next + 1) % capacity
-        count = minOf(count + 1, capacity)
-        frames += 1
+    }
+
+    /** Freeze or resume; returns the new state so the UI can show it. */
+    fun toggleFreeze(): Boolean {
+        isFrozen = !isFrozen
+        return isFrozen
     }
 
     fun reset() {
-        count = 0
-        next = 0
-        longs = 0
-        lastFrameNanos = 0L
+        work.fill(0)
+        interval.fill(0)
         frames = 0
+        longs = 0
+        maxWork = 0f
+        maxInterval = 0f
+        pumpTotal = 0f
+        buildTotal = 0f
+        drawTotal = 0f
+        lastFrameNanos = 0L
     }
 
-    fun p50(values: FloatArray): Float = percentile(values, 0.5f)
+    /** Frames whose work exceeded 8 ms — the acceptance criterion's numerator. */
+    fun slowFrames(): Int = work[3] + work[4] + work[5]
 
-    fun p99(): Float = percentile(total, 0.99f)
+    /** Share of drawn frames that exceeded 8 ms, in percent. */
+    fun slowShare(): Float = if (frames == 0) 0f else slowFrames() * 100f / frames
+
+    fun averagePump(): Float = average(pumpTotal)
+
+    fun averageBuild(): Float = average(buildTotal)
+
+    fun averageDraw(): Float = average(drawTotal)
+
+    fun frameCount(): Int = frames
+
+    fun maxFrame(): Float = maxWork
 
     fun janky(): Int = longs
 
-    /** One line for the status row: what a frame costs, and where it goes. */
+    /** The status line: compact, and nothing in it moves backwards. */
     fun summary(): String {
-        if (count == 0) {
+        if (frames == 0) {
             return "no frame drawn yet"
         }
 
-        return "p50 %.0f p99 %.0f ms · pump %.0f build %.0f draw %.0f · %d/%d janky"
-            .format(p50(total), p99(), p50(pump), p50(build), p50(draw), longs, frames)
+        return "%s%d frames · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f draw %.1f · jank %d"
+            .format(
+                if (isFrozen) "FROZEN " else "",
+                frames,
+                slowFrames(),
+                slowShare(),
+                maxWork,
+                averagePump(),
+                averageBuild(),
+                averageDraw(),
+                longs,
+            )
     }
 
-    private fun percentile(values: FloatArray, fraction: Float): Float {
-        if (count == 0) {
-            return 0f
-        }
+    /**
+     * The same numbers as one logcat line, which is what gets sent: a line that
+     * cannot change under the reader's feet.
+     */
+    fun logLine(): String =
+        "frames=%d slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f draw=%.1f jank=%d interval_max=%.1f"
+            .format(
+                frames,
+                slowFrames(),
+                slowShare(),
+                maxWork,
+                averagePump(),
+                averageBuild(),
+                averageDraw(),
+                longs,
+                maxInterval,
+            )
 
-        val copy = FloatArray(count)
-        System.arraycopy(values, 0, copy, 0, count)
-        copy.sort()
+    private fun average(total: Float): Float = if (frames == 0) 0f else total / frames
 
-        val index = ((count - 1) * fraction).toInt().coerceIn(0, count - 1)
-        return copy[index]
+    private fun bucket(millis: Float): Int = when {
+        millis < 2f -> 0
+        millis < 4f -> 1
+        millis < 8f -> 2
+        millis < 16f -> 3
+        millis < 33f -> 4
+        else -> 5
     }
 
     private fun millis(from: Long, to: Long): Float = (to - from) / NANOS_PER_MILLI
 
     private companion object {
+        const val BUCKETS = 6
         const val NANOS_PER_MILLI = 1_000_000f
 
         /**

@@ -315,16 +315,29 @@ session. (Details: PLAN.md §7-Phase A)
       drag produces.
 
 ### Benchmarks
-- [x] Frame timings in the app (`bench/FrameStats.kt`): per-frame CPU work
-      (build + upload + submit) with p50/p99 and a jank counter (a gap of more
-      than two refreshes since the previous drawn frame), shown in a status line
-      above the extra-keys row; tapping the line resets the window. GPU time
-      would need timer queries and is out of scope for the prototype.
-- [ ] The acceptance numbers themselves (`frame p99 < 8 ms`, no jank under
-      full-screen output) have to be read off a device — the status line shows
-      them, and the values go here once a device test reports them.
-- [ ] `bench/`: the repo-level benchmark notes (guest runtime timings land there
-      in Phase C).
+- [x] Frame timings in the app (`bench/FrameStats.kt`): frame work split into
+      pump / build / draw, with monotone counters (work and interval buckets,
+      `>8ms` share = the acceptance numerator, phase averages, jank count, worst
+      frame). **Tapping the status line freezes** them (amber) and produces the
+      artefact: one `DroshLabBench` logcat line, the same line appended to
+      `files/bench.log`, and a POST to the device-side collector. GPU time would
+      need timer queries and is out of scope.
+- [x] The workload is written down (`bench/scenarios.sh`): `steady`, `scroll-cat`
+      (2 MB), `scroll-ls` (`ls -R /system`), `runaway` (`yes | head -30000`) —
+      plus `bench/push-results.sh` for a machine with `adb`, and
+      `bench/README.md` for the process.
+- [x] Transport, device half: `bench/BenchUploader.kt` posts a frozen line to
+      `http://127.0.0.1:8080/bench` (loopback constants only, off the main
+      thread, only on an explicit freeze tap). This is the app's first declared
+      permission (`INTERNET`, required by Android even for loopback).
+- [ ] Transport, reading half: the tester's loopback collector answers
+      `200 WORKING` to everything but does **not** serve back what it stores (a
+      marker POSTed from the build box appears at none of `/`, `/data`, `/last`,
+      `/bench`, `/results`, `/log`). Until a read-back endpoint exists, the
+      numbers arrive by `adb logcat -d -s DroshLabBench` or
+      `bench/push-results.sh --push`.
+- [ ] The acceptance numbers themselves (a device run per scenario) — the numbers
+      go into the device-run entry above.
 
 ### Acceptance
 - [ ] **Device run 1 (2026-10-16, commit `64db7e2`, Android 15, kernel
@@ -336,12 +349,17 @@ session. (Details: PLAN.md §7-Phase A)
         buttons `#2a2a2a` — palette and layout as designed; glyphs upright and
         legible, prompt and block cursor correct
       - **frame numbers: p50 114.0 ms, p99 114.0 ms, 115 janky / 129**, measured
-        while `yes` saturated the PTY. The target (`p99 < 8 ms`) is missed by an
-        order of magnitude, and the number is **not yet attributed**: the frame
-        includes the snapshot call, which can wait on the grid lock while the
-        parser runs, and the row-slot padding made every row cost a full
-        `columns * 5` quads. The next build splits the timing (pump / build /
-        draw) and stops padding slots it does not draw.
+        while `yes | head -30000` ran (the tester's correction; the earlier note
+        said only `yes`, which is a different, unbounded workload). The target
+        (`p99 < 8 ms`) is missed by an order of magnitude, and the number is
+        **not yet attributed**: the frame includes the snapshot call, which can
+        wait on the grid lock while the parser runs, and the row-slot padding made
+        every row cost a full `columns * 5` quads. The follow-up build splits the
+        timing (pump / build / draw) and stops padding slots it does not draw —
+        and the *process* was fixed too: the rolling status window is gone
+        (counters only grow, tapping freezes them into a `DroshLabBench` logcat
+        line) with the workload now written down as scenarios
+        (`bench/scenarios.sh`). See `bench/README.md`.
       - still to test: Tab/Ctrl combinations, selection + copy/paste, and the
         same numbers under a *defined* workload (a burst that does not saturate
         the PTY, e.g. `cat` of a few MB) — the acceptance criterion needs a
