@@ -315,7 +315,16 @@ session. (Details: PLAN.md §7-Phase A)
       drag produces.
 
 ### Benchmarks
-- [ ] `bench/`: frame p50/p99 + jank counter overlay
+- [x] Frame timings in the app (`bench/FrameStats.kt`): per-frame CPU work
+      (build + upload + submit) with p50/p99 and a jank counter (a gap of more
+      than two refreshes since the previous drawn frame), shown in a status line
+      above the extra-keys row; tapping the line resets the window. GPU time
+      would need timer queries and is out of scope for the prototype.
+- [ ] The acceptance numbers themselves (`frame p99 < 8 ms`, no jank under
+      full-screen output) have to be read off a device — the status line shows
+      them, and the values go here once a device test reports them.
+- [ ] `bench/`: the repo-level benchmark notes (guest runtime timings land there
+      in Phase C).
 
 ### Acceptance
 - [ ] frame p99 < 8 ms

@@ -4,6 +4,7 @@ import android.opengl.GLES20
 import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.Log
+import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.input.Selection
@@ -40,6 +41,8 @@ internal class TerminalRenderer(
     private val fontPx: Float,
     /** The current selection, drawn inverted like alacritty's default. */
     private val selection: Selection,
+    /** Frame timings for the Phase B acceptance numbers. */
+    private val stats: FrameStats,
 ) : GLSurfaceView.Renderer {
 
     /** Set by the activity; called when the surface needs a different grid. */
@@ -126,6 +129,7 @@ internal class TerminalRenderer(
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        val startedNanos = System.nanoTime()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
         val buffer = session.cells ?: return
@@ -192,6 +196,10 @@ internal class TerminalRenderer(
         lastCursorRow = cursorRow
         lastCursorVisible = cursorVisible
         draw(rows * rowSlotQuads * QUAD_VERTICES)
+
+        // CPU-side work for this frame: build + upload + submit. GPU time would
+        // need timer queries, which are out of scope for the prototype.
+        stats.record(startedNanos, System.nanoTime())
 
         if (cursorShape == NativeCore.CURSOR_HIDDEN) {
             lastCursorRow = -1
