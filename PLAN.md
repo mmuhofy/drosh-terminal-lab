@@ -239,6 +239,20 @@ is closed; the install floor will keep rising — known, accepted risk.
   spacers are skipped and trailing blanks trimmed per line. Paste is the row's
   other button: `ESC [ 200 ~ … 201 ~` when the program enabled mode 2004, raw
   otherwise, capped at 64 KB so a stray clipboard cannot flood the PTY.
+- 2026-10-16: **First device numbers, and what they changed.** The Phase B build
+  reported `p50 114.0 ms / p99 114.0 ms, 115 janky / 129` under `yes` — the
+  acceptance target is `p99 < 8 ms`, so it is missed by an order of magnitude and
+  the frame is *not attributable* from that one number: the frame includes the
+  snapshot call, which takes the grid lock and therefore also waits while the
+  parser is busy, and the row-slot design padded every row to `columns * 5`
+  quads and wrote that padding on every rebuild. Two changes follow from it, both
+  the honest kind — measure, then fix: the status line now splits the frame into
+  **pump / build / draw** so the next number says where the time goes, and the
+  padding is gone (a row records how many quads it produced; `draw` submits that
+  prefix, one `glDrawArray` per row). The acceptance criterion also needs a
+  *workload* rather than a stress test: `yes` saturates the PTY and keeps the
+  parser holding the lock, so both a burst (`cat` of a few MB) and the runaway
+  case belong in the record — the numbers, and the attribution, are in TODO.md.
 ## 4. Target architecture
 
 ```

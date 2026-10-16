@@ -161,6 +161,7 @@ class MainActivity : Activity() {
             setTextColor(STATUS_COLOR)
             setBackgroundColor(STATUS_BACKGROUND)
             setPadding(STATUS_PADDING, STATUS_PADDING, STATUS_PADDING, STATUS_PADDING)
+            maxLines = 2
             text = stats.summary()
             setOnClickListener {
                 stats.reset()
