@@ -9,7 +9,10 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.view.inputmethod.InputMethodManager
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.Toast
 import dev.drosh.lab.core.NativeCore
@@ -17,6 +20,8 @@ import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.input.AndroidKeys
 import dev.drosh.lab.input.Encoder
 import dev.drosh.lab.input.ExtraKeysView
+import dev.drosh.lab.input.Selection
+import dev.drosh.lab.input.SelectionText
 import dev.drosh.lab.input.TerminalInputView
 import dev.drosh.lab.render.CellMetrics
 import dev.drosh.lab.render.FrameLoop
@@ -46,6 +51,10 @@ class MainActivity : Activity() {
 
     private var scrollAccumulator = 0f
     private var exited = false
+
+    /** The current selection; long-press selects a word, dragging extends it. */
+    private val selection = Selection()
+    private var draggingSelection = false
 
     /**
      * The frame pump: the engine's wakeup flag is polled once per vsync instead
@@ -89,7 +98,7 @@ class MainActivity : Activity() {
             cwd = filesDir.absolutePath,
         )
 
-        renderer = TerminalRenderer(session, atlas, metrics, fontPx)
+        renderer = TerminalRenderer(session, atlas, metrics, fontPx, selection)
         renderer.onGridChanged = { columns, rows ->
             // The renderer reports from the GL thread; the session is only ever
             // touched from the UI thread.
@@ -119,6 +128,21 @@ class MainActivity : Activity() {
         keys.onKey = { named, ctrl ->
             Encoder.sequence(named, Encoder.Mods(ctrl = ctrl), appCursor())?.let { session.write(it) }
         }
+        keys.onCopy = { copySelection() }
+        keys.onPaste = { pasteClipboard() }
+
+        // The row scrolls sideways: Ctrl/Esc/Tab/arrows fit a phone, but the row
+        // is meant to grow (Ctrl+C, other keys) without a layout rewrite.
+        val keysScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(
+                keys,
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
 
         // The keys row takes its own strip of the window, so the grid is told
         // about a smaller surface instead of drawing under the buttons.
@@ -133,7 +157,7 @@ class MainActivity : Activity() {
             ),
         )
         column.addView(
-            keys,
+            keysScroll,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -302,7 +326,25 @@ class MainActivity : Activity() {
                 override fun onDown(event: MotionEvent): Boolean = true
 
                 override fun onSingleTapUp(event: MotionEvent): Boolean {
+                    // A tap ends the selection instead of clearing the screen.
+                    if (!selection.isEmpty) {
+                        selection.clear()
+                        surface.requestRender()
+                        return true
+                    }
                     focusInput()
+                    return true
+                }
+
+                override fun onLongPress(event: MotionEvent) {
+                    // The mobile convention: a long press picks a word, and
+                    // dragging from there extends the selection.
+                    selectWordAt(event.x, event.y)
+                    draggingSelection = true
+                }
+
+                override fun onDoubleTap(event: MotionEvent): Boolean {
+                    selectWordAt(event.x, event.y)
                     return true
                 }
 
@@ -312,6 +354,12 @@ class MainActivity : Activity() {
                     distanceX: Float,
                     distanceY: Float,
                 ): Boolean {
+                    if (draggingSelection) {
+                        selection.extend(cellRow(current.y), cellColumn(current.x))
+                        surface.requestRender()
+                        return true
+                    }
+
                     // Finger down (positive dy) scrolls back into the history.
                     scrollAccumulator += distanceY
                     val rowsMoved = (scrollAccumulator / metrics.height).toInt()
@@ -325,7 +373,95 @@ class MainActivity : Activity() {
             },
         )
 
-        return View.OnTouchListener { _, event -> detector.onTouchEvent(event) }
+        return View.OnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
+                draggingSelection = false
+            }
+            detector.onTouchEvent(event)
+        }
+    }
+
+    /** The grid row under a vertical surface coordinate. */
+    private fun cellRow(y: Float): Int {
+        val rows = session.rows
+        if (rows <= 0) {
+            return 0
+        }
+        return (y / metrics.height).toInt().coerceIn(0, rows - 1)
+    }
+
+    /** The grid column under a horizontal surface coordinate. */
+    private fun cellColumn(x: Float): Int {
+        val columns = session.columns
+        if (columns <= 0) {
+            return 0
+        }
+        return (x / metrics.width).toInt().coerceIn(0, columns - 1)
+    }
+
+    private fun selectWordAt(x: Float, y: Float) {
+        val cells = session.cells ?: return
+        val columns = session.columns
+        if (columns <= 0 || session.rows <= 0) {
+            return
+        }
+
+        val row = cellRow(y)
+        val column = cellColumn(x)
+        val range = Selection.wordRange(row, column, columns) { r, c ->
+            val at = (r * columns + c) * NativeCore.CELL_BYTES
+            cells.getInt(at + NativeCore.CELL_OFFSET_CODEPOINT).toChar()
+        }
+
+        selection.select(range[0], range[1], range[2], range[3])
+        surface.requestRender()
+    }
+
+    private fun copySelection() {
+        val cells = session.cells ?: return
+        if (selection.isEmpty) {
+            toast("nothing selected — long-press a word first")
+            return
+        }
+
+        val text = SelectionText.extract(cells, session.columns, selection)
+        if (text.isEmpty()) {
+            toast("the selection is empty")
+            return
+        }
+
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(CLIPBOARD_LABEL, text))
+        toast("copied ${text.length} characters")
+    }
+
+    private fun pasteClipboard() {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip
+        if (clip == null || clip.itemCount == 0) {
+            toast("the clipboard is empty")
+            return
+        }
+
+        val text = clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+        if (text.isEmpty()) {
+            return
+        }
+
+        if (text.length > PASTE_LIMIT) {
+            toast("paste truncated to $PASTE_LIMIT characters")
+        }
+        val capped = text.take(PASTE_LIMIT)
+
+        // Mode 2004 lets the shell tell a paste from typing, which is what keeps
+        // a multi-line paste from running line by line.
+        val bracketed =
+            session.stateArray[NativeCore.STATE_MODE_BITS] and NativeCore.MODE_BRACKETED_PASTE != 0
+        if (bracketed) {
+            session.writeUtf8("\u001b[200~$capped\u001b[201~")
+        } else {
+            session.writeUtf8(capped)
+        }
     }
 
     private fun focusInput() {
@@ -365,5 +501,11 @@ class MainActivity : Activity() {
         /** The faces bundled in the APK (Phase B: one font, everywhere identical). */
         const val REGULAR_FONT = "fonts/JetBrainsMonoNL-Regular.ttf"
         const val BOLD_FONT = "fonts/JetBrainsMonoNL-Bold.ttf"
+
+        /** Label on the clipboard entry, so a paste is recognisable. */
+        const val CLIPBOARD_LABEL = "drosh-terminal-lab"
+
+        /** Pastes are capped: a phone clipboard is not a file transfer. */
+        const val PASTE_LIMIT = 65_536
     }
 }

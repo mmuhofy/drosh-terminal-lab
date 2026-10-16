@@ -23,6 +23,12 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
     /** Called for a row key: which key, and whether Ctrl was armed for it. */
     var onKey: ((Encoder.Named, Boolean) -> Unit)? = null
 
+    /** Copy the current selection to the clipboard. */
+    var onCopy: (() -> Unit)? = null
+
+    /** Paste the clipboard into the session. */
+    var onPaste: (() -> Unit)? = null
+
     /** Called when the armed state changes, so the activity can show it. */
     var onCtrlChanged: ((Boolean) -> Unit)? = null
 
@@ -48,6 +54,10 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
         addButton("\u2191") { emit(Encoder.Named.Up) }
         addButton("\u2193") { emit(Encoder.Named.Down) }
         addButton("\u2192") { emit(Encoder.Named.Right) }
+        // Long-press selects a word, this copies it; Paste is also the only way
+        // to get text *into* the session without typing it.
+        addButton("Copy") { onCopy?.invoke() }
+        addButton("Paste") { onPaste?.invoke() }
     }
 
     fun clearCtrl() = setCtrlArmed(false)

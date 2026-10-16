@@ -6,6 +6,7 @@ import android.opengl.GLSurfaceView
 import android.util.Log
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
+import dev.drosh.lab.input.Selection
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -37,6 +38,8 @@ internal class TerminalRenderer(
     private val metrics: CellMetrics,
     /** Pixel size the glyphs are rasterised at. */
     private val fontPx: Float,
+    /** The current selection, drawn inverted like alacritty's default. */
+    private val selection: Selection,
 ) : GLSurfaceView.Renderer {
 
     /** Set by the activity; called when the surface needs a different grid. */
@@ -80,6 +83,7 @@ internal class TerminalRenderer(
     private var dirtyRows = BooleanArray(0)
     private var lastCursorRow = -1
     private var lastCursorVisible = false
+    private var drawnSelection = IntRange.EMPTY
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         glVersion = GLES20.glGetString(GLES20.GL_VERSION) ?: "unknown"
@@ -164,6 +168,18 @@ internal class TerminalRenderer(
                 markDirty(lastCursorRow)
             }
 
+            // Nor is the selection: mark what it covers now and what it covered
+            // last frame, which is all a drag can have changed.
+            if (selection.consumeDirty()) {
+                for (row in drawnSelection) {
+                    markDirty(row)
+                }
+                for (row in selection.rows) {
+                    markDirty(row)
+                }
+            }
+            drawnSelection = selection.rows
+
             for (row in 0 until rows) {
                 if (dirtyRows[row]) {
                     buildRow(row, buffer, state)
@@ -215,12 +231,21 @@ internal class TerminalRenderer(
                 background = swap
             }
 
+            if (selection.contains(row, column)) {
+                // alacritty's default selection colours are the inverted cell
+                // (`InvertedCellColors::default`: background = the primary
+                // foreground, text = the primary background).
+                background = Palette.DEFAULT_FOREGROUND
+                foreground = Palette.DEFAULT_BACKGROUND
+            }
+
             val cursorHere = cursorVisible &&
                 cursorShape != NativeCore.CURSOR_HIDDEN &&
                 row == cursorRow &&
                 column == cursorColumn
             if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
-                // A block cursor is the cell drawn in the cursor colour.
+                // A block cursor is the cell drawn in the cursor colour; it wins
+                // over the selection, like it does in alacritty.
                 background = Palette.CURSOR
                 foreground = Palette.DEFAULT_BACKGROUND
             }
@@ -489,6 +514,7 @@ internal class TerminalRenderer(
         fullRebuild = true
         lastCursorRow = -1
         lastCursorVisible = false
+        drawnSelection = IntRange.EMPTY
     }
 
     /** The atlas is a single-channel texture; the shader tints its coverage. */
