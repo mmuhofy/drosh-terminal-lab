@@ -37,26 +37,38 @@ internal class FrameStats {
     private var maxInterval = 0f
     private var pumpTotal = 0f
     private var buildTotal = 0f
+    private var uploadTotal = 0f
     private var drawTotal = 0f
+    private var damagedRows = 0
     private var lastFrameNanos = 0L
 
     /** While frozen, [record] is ignored: the numbers stop moving. */
     var isFrozen = false
         private set
 
-    fun record(startNanos: Long, pumpEndNanos: Long, buildEndNanos: Long, drawEndNanos: Long) {
+    fun record(
+        startNanos: Long,
+        pumpEndNanos: Long,
+        buildEndNanos: Long,
+        uploadEndNanos: Long,
+        drawEndNanos: Long,
+        damagedRowCount: Int,
+    ) {
         if (isFrozen) {
             return
         }
 
         val pumpMillis = millis(startNanos, pumpEndNanos)
         val buildMillis = millis(pumpEndNanos, buildEndNanos)
-        val drawMillis = millis(buildEndNanos, drawEndNanos)
-        val total = pumpMillis + buildMillis + drawMillis
+        val uploadMillis = millis(buildEndNanos, uploadEndNanos)
+        val drawMillis = millis(uploadEndNanos, drawEndNanos)
+        val total = pumpMillis + buildMillis + uploadMillis + drawMillis
 
         pumpTotal += pumpMillis
         buildTotal += buildMillis
+        uploadTotal += uploadMillis
         drawTotal += drawMillis
+        damagedRows += damagedRowCount
         frames += 1
         maxWork = maxOf(maxWork, total)
         work[bucket(total)] += 1
@@ -107,6 +119,10 @@ internal class FrameStats {
 
     fun averageBuild(): Float = average(buildTotal)
 
+    fun averageUpload(): Float = average(uploadTotal)
+
+    fun averageRows(): Float = rowsPerFrame()
+
     fun averageDraw(): Float = average(drawTotal)
 
     fun frameCount(): Int = frames
@@ -127,14 +143,16 @@ internal class FrameStats {
         // any other device.
         return java.lang.String.format(
             java.util.Locale.ROOT,
-            "%s%d frames · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f draw %.1f · jank %d",
+            "%s%d frames · %.0f rows/f · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f up %.1f draw %.1f · jank %d",
             if (isFrozen) "FROZEN " else "",
             frames,
+            rowsPerFrame(),
             slowFrames(),
             slowShare(),
             maxWork,
             averagePump(),
             averageBuild(),
+            averageUpload(),
             averageDraw(),
             longs,
         )
@@ -147,19 +165,25 @@ internal class FrameStats {
     fun logLine(): String =
         java.lang.String.format(
             java.util.Locale.ROOT,
-            "frames=%d slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f draw=%.1f jank=%d interval_max=%.1f",
+            "frames=%d rows_per_frame=%.1f slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f upload=%.1f draw=%.1f jank=%d interval_max=%.1f",
             frames,
+            rowsPerFrame(),
             slowFrames(),
             slowShare(),
             maxWork,
             averagePump(),
             averageBuild(),
+            averageUpload(),
             averageDraw(),
             longs,
             maxInterval,
         )
 
     private fun average(total: Float): Float = if (frames == 0) 0f else total / frames
+
+    /** Rows rebuilt per frame on average: build cost scales with this, so without
+     *  it two runs cannot be compared (TODO.md, device runs 2 and 3). */
+    private fun rowsPerFrame(): Float = if (frames == 0) 0f else damagedRows.toFloat() / frames
 
     private fun bucket(millis: Float): Int = when {
         millis < 2f -> 0

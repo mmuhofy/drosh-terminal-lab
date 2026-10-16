@@ -396,6 +396,14 @@ session. (Details: PLAN.md §7-Phase A)
       Follow-up: pre-rasterise printable ASCII into the atlas at startup, and
       define jank as *work* over two refreshes (the interval counts idle time and
       produced 15 "janky" frames out of 16 while the app was idle).
+- [ ] **Device run 3 (2026-10-16 18:05, commit `00650f4`):** `frames=8
+      slow8=8 (100.00%) max=227.9 pump=7.8 build=62.8 draw=0.3 jank=4`.
+      **Not comparable with run 2**: `build` scales with the number of rebuilt
+      rows and the line did not say how many, so run 2 (13.3 ms) and run 3
+      (62.8 ms) may be measuring different amounts of damage. In flight: record
+      `rows/frame`, split vertex building from **uploading** (a driver pays per
+      `glBufferSubData`, and a scrolling frame issued one per row), and upload the
+      whole buffer in one call when most rows are dirty.
 - [ ] frame p99 < 8 ms — needs labelled scenario runs: the captures are
       chronological, so running `bench/scenarios.sh` in order and freezing once
       per scenario maps four lines onto four names
