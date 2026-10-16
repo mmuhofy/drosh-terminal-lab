@@ -36,7 +36,7 @@ class MainActivity : Activity() {
     private lateinit var input: TerminalInputView
 
     private val handler = Handler(Looper.getMainLooper())
-    private var blinkMillis = 0
+    private var blinkMillis = 0L
     private var scrollAccumulator = 0f
     private var exited = false
 
