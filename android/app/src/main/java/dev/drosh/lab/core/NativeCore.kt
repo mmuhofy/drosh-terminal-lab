@@ -61,7 +61,8 @@ internal object NativeCore {
     const val FLAG_ANY_UNDERLINE = FLAG_UNDERLINE or FLAG_DOUBLE_UNDERLINE or FLAG_UNDERCURL or
         FLAG_DOTTED_UNDERLINE or FLAG_DASHED_UNDERLINE
 
-    // --- state array (bridge::snapshot::state_index) ---    const val STATE_LEN = 8
+    // --- state array (bridge::snapshot::state_index) ---
+    const val STATE_LEN = 8
     const val STATE_COLUMNS = 0
     const val STATE_ROWS = 1
     const val STATE_CURSOR_ROW = 2

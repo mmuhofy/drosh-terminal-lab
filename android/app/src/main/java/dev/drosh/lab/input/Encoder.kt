@@ -167,19 +167,29 @@ internal object Encoder {
             return ByteArray(0)
         }
 
-        var bytes = if (mods.alt) byteArrayOf(ESC.toByte()) else ByteArray(0)
-        var rest = text
+        // Built through a stream rather than array concatenation: this runs once
+        // per committed character, and the intent stays readable.
+        val out = java.io.ByteArrayOutputStream(text.length + 2)
 
+        if (mods.alt) {
+            out.write(ESC)
+        }
+
+        var rest = text
         if (mods.ctrl) {
             controlCode(text[0])?.let { code ->
-                bytes += code.toByte()
+                out.write(code)
                 rest = text.substring(1)
             }
         }
 
         // Only the first character can be turned into a control code, so the
         // remainder is a byte-for-byte copy of what the keyboard sent (UTF-8).
-        return if (rest.isEmpty()) bytes else bytes + rest.toByteArray(Charsets.UTF_8)
+        if (rest.isNotEmpty()) {
+            out.write(rest.toByteArray(Charsets.UTF_8))
+        }
+
+        return out.toByteArray()
     }
 
     /**
