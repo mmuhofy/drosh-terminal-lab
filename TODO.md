@@ -327,9 +327,22 @@ session. (Details: PLAN.md §7-Phase A)
       in Phase C).
 
 ### Acceptance
-- [ ] frame p99 < 8 ms
-- [ ] no jank under full-screen output
-- [ ] crisp pinch zoom; select + copy + paste working
+- [ ] **Device run (rolling `device-test` build; results land here):**
+      - record from the app's log line (`adb logcat -s DroshLab`): core version,
+        grid size (`NxM` cells of `WxH` px), font metrics (cell size, ascent) and
+        `GL_VERSION` — these are the Phase B device record
+      - glyphs are JetBrains Mono NL (same cell size as the Phase A build? it is
+        now the font's own metric, so it may differ — record both)
+      - bold is a real bold face; underlined/struck-out text renders
+      - `Tab` completion, `Ctrl`+`c`/`l`/`d`, `↑` history, arrows in `vi`/`top`
+        (application mode)
+      - long-press word select → drag → `Copy`; `Paste` of a multi-line
+        clipboard entry arrives as one bracketed paste
+- [ ] frame p99 < 8 ms — the status line shows p50/p99 while a burst runs
+      (`yes | head -20000`); the first numbers go here
+- [ ] no jank under full-screen output (the same line counts janky frames)
+- [ ] crisp pinch zoom; select + copy + paste working ← zoom is not built yet
+      (see the input section); copy/paste are
 - [ ] If targets are missed: evaluate the Alacritty renderer port Plan-B with
       the measured data
 
