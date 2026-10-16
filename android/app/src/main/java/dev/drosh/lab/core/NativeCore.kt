@@ -61,8 +61,7 @@ internal object NativeCore {
     const val FLAG_ANY_UNDERLINE = FLAG_UNDERLINE or FLAG_DOUBLE_UNDERLINE or FLAG_UNDERCURL or
         FLAG_DOTTED_UNDERLINE or FLAG_DASHED_UNDERLINE
 
-    // --- state array (bridge::snapshot::state_index) ---
-    const val STATE_LEN = 8
+    // --- state array (bridge::snapshot::state_index) ---    const val STATE_LEN = 8
     const val STATE_COLUMNS = 0
     const val STATE_ROWS = 1
     const val STATE_CURSOR_ROW = 2
@@ -70,6 +69,22 @@ internal object NativeCore {
     const val STATE_CURSOR_SHAPE = 4
     const val STATE_DISPLAY_OFFSET = 5
     const val STATE_MODE_BITS = 6
+
+    // --- terminal modes (bridge::snapshot::mode) ---
+    const val MODE_SHOW_CURSOR = 1 shl 0
+    const val MODE_APP_CURSOR = 1 shl 1
+    const val MODE_APP_KEYPAD = 1 shl 2
+    const val MODE_MOUSE_REPORT_CLICK = 1 shl 3
+    const val MODE_MOUSE_MOTION = 1 shl 4
+    const val MODE_MOUSE_DRAG = 1 shl 5
+    const val MODE_SGR_MOUSE = 1 shl 6
+    const val MODE_BRACKETED_PASTE = 1 shl 7
+    const val MODE_FOCUS_IN_OUT = 1 shl 8
+    const val MODE_ALT_SCREEN = 1 shl 9
+    const val MODE_INSERT = 1 shl 10
+    const val MODE_LINE_WRAP = 1 shl 11
+    const val MODE_LINE_FEED_NEW_LINE = 1 shl 12
+    const val MODE_ORIGIN = 1 shl 13
 
     const val CURSOR_BLOCK = 0
     const val CURSOR_UNDERLINE = 1

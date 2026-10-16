@@ -194,6 +194,19 @@ is closed; the install floor will keep rising — known, accepted risk.
   and stay a recorded decision (§8 item 3). Cell width comes from a *shaped*
   advance, not from an average, so the metric the grid is laid out with is the
   same number the glyphs are positioned with.
+- 2026-10-16: Phase B input. The encoder's sequences are pinned to sources, not
+  to memory: `Encoder.kt` derives from `alacritty/src/config/bindings.rs`
+  (APP_CURSOR cursors `ESC O A`, Shift+Tab `ESC [ Z`, Alt as an ESC prefix or as
+  the modifier parameter `CSI 1;3D`) and from
+  `alacritty/src/input/keyboard.rs` (`~`-terminated keys, F1–F4 as SS3, the named
+  control characters), and `EncoderTest.kt` pins every one of them so a
+  regression fails in CI rather than on a device. Two deliberate choices: Enter
+  sends **CR** (0x0d) — ICRNL turns it into a newline for the shell while a
+  raw-mode program receives what it expects — and Ctrl+letter uses the **C0
+  mapping** (`code & 0x1f`), because on Android no OS keyboard layer does it for
+  us; the device test exercises it through Ctrl+C. The sticky Ctrl is one-shot,
+  and the extra-keys row is Ctrl/Esc/Tab plus the arrows until a device test
+  says more is worth the screen space.
 ## 4. Target architecture
 
 ```

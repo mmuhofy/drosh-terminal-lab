@@ -43,5 +43,11 @@ android {
     }
 }
 
+dependencies {
+    // JVM unit tests for the pure input encoder (`src/test/java`); the Android
+    // classes themselves need a device, so nothing heavier is pulled in.
+    testImplementation("junit:junit:4.13.2")
+}
+
 // The Rust core reaches the APK through src/main/jniLibs/arm64-v8a/
 // (produced by the CI Rust build; never committed — see .gitignore).

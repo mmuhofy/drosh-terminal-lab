@@ -12,10 +12,13 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
-import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
+import dev.drosh.lab.input.AndroidKeys
+import dev.drosh.lab.input.Encoder
+import dev.drosh.lab.input.ExtraKeysView
 import dev.drosh.lab.input.TerminalInputView
 import dev.drosh.lab.render.CellMetrics
 import dev.drosh.lab.render.GlyphAtlas
@@ -34,6 +37,7 @@ class MainActivity : Activity() {
     private lateinit var renderer: TerminalRenderer
     private lateinit var surface: GLSurfaceView
     private lateinit var input: TerminalInputView
+    private lateinit var keys: ExtraKeysView
 
     /** Cell geometry from the bundled font, filled in by [loadFont]. */
     private lateinit var metrics: CellMetrics
@@ -110,25 +114,46 @@ class MainActivity : Activity() {
         }
 
         input = TerminalInputView(this)
-        input.onText = { text -> session.writeUtf8(text) }
-        input.onBackspace = { session.write(byteArrayOf(DEL.toByte())) }
-        input.onKey = { keyCode, _ -> handleKey(keyCode) }
+        input.onText = { text ->
+            // A soft keyboard commits text; the row's armed Ctrl turns the first
+            // character into a control code, which is how a phone sends Ctrl+C.
+            session.write(Encoder.text(text, Encoder.Mods(ctrl = keys.ctrlArmed)))
+            keys.clearCtrl()
+        }
+        input.onBackspace = { session.write(byteArrayOf(0x7f)) }
+        input.onKey = { keyCode, event -> handleHardwareKey(keyCode, event) }
 
-        val root = FrameLayout(this)
-        root.addView(
+        keys = ExtraKeysView(this)
+        keys.onKey = { named, ctrl ->
+            Encoder.sequence(named, Encoder.Mods(ctrl = ctrl), appCursor())?.let { session.write(it) }
+        }
+
+        // The keys row takes its own strip of the window, so the grid is told
+        // about a smaller surface instead of drawing under the buttons.
+        val column = LinearLayout(this)
+        column.orientation = LinearLayout.VERTICAL
+        column.addView(
             surface,
-            FrameLayout.LayoutParams(
+            LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f,
             ),
         )
-        root.addView(
-            input,
-            // One pixel, behind the surface: it only exists so the soft keyboard
-            // has a focused text editor to talk to. Touches stay on the surface.
-            FrameLayout.LayoutParams(1, 1),
+        column.addView(
+            keys,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
         )
-        setContentView(root)
+        column.addView(
+            input,
+            // One pixel: it only exists so the soft keyboard has a focused text
+            // editor to talk to, and touches stay on the surface.
+            LinearLayout.LayoutParams(1, 1),
+        )
+        setContentView(column)
 
         surface.setOnTouchListener(gestureListener())
 
@@ -231,16 +256,43 @@ class MainActivity : Activity() {
         )
     }
 
-    private fun handleKey(keyCode: Int): Boolean = when (keyCode) {
-        KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-            session.writeUtf8("\n")
-            true
+    /**
+     * Send a key that arrived as a key event: a hardware keyboard, or an IME
+     * that reports keys instead of committing text.
+     *
+     * Returning `false` lets the IME handle it, which is what must happen for a
+     * plain printable key — the text path already carries those.
+     */
+    private fun handleHardwareKey(keyCode: Int, event: KeyEvent): Boolean {
+        val named = AndroidKeys.named(keyCode)
+        if (named != null) {
+            val mods = AndroidKeys.mods(event, keys.ctrlArmed)
+            Encoder.sequence(named, mods, appCursor())?.let { session.write(it) }
+            keys.clearCtrl()
+            return true
         }
-        KeyEvent.KEYCODE_DEL -> {
-            session.write(byteArrayOf(DEL.toByte()))
-            true
+
+        // A printable key while Ctrl (or Alt) is held: Ctrl+C has to become 0x03
+        // even though the character would normally travel as text.
+        val armed = keys.ctrlArmed || event.isAltPressed
+        val codepoint = event.unicodeChar
+        if (armed && codepoint != 0) {
+            val character = String(Character.toChars(codepoint))
+            session.write(Encoder.text(character, AndroidKeys.mods(event, keys.ctrlArmed)))
+            keys.clearCtrl()
+            return true
         }
-        else -> false
+
+        return false
+    }
+
+    /** DECCKM: full-screen programs ask for the `ESC O` cursor keys. */
+    private fun appCursor(): Boolean {
+        if (!session.isAlive) {
+            return false
+        }
+        val modes = session.stateArray[NativeCore.STATE_MODE_BITS]
+        return modes and NativeCore.MODE_APP_CURSOR != 0
     }
 
     private fun gestureListener(): View.OnTouchListener {
@@ -307,8 +359,6 @@ class MainActivity : Activity() {
         const val TAG = "DroshLab"
         const val SHELL = "/system/bin/sh"
 
-        /** DEL: what xterm sends for backspace, and what a shell expects. */
-        const val DEL = 0x7f
         const val POLL_MILLIS = 32L
         const val BLINK_MILLIS = 500L
 

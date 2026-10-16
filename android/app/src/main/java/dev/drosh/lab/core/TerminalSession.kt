@@ -25,6 +25,9 @@ internal class TerminalSession(
     var handle: Long = NO_HANDLE
         private set
 
+    /** True while the core holds a live session for this wrapper. */
+    val isAlive: Boolean get() = handle != NO_HANDLE
+
     @Volatile
     var columns = 0
         private set
