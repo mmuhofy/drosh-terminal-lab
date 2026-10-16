@@ -56,8 +56,7 @@ pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeInitFont<'local>
             return Err(ErrorCode::InvalidArgument);
         }
 
-        let regular =
-            env.convert_byte_array(&regular).map_err(|_| ErrorCode::InvalidArgument)?;
+        let regular = env.convert_byte_array(&regular).map_err(|_| ErrorCode::InvalidArgument)?;
         let bold = if bold.is_null() {
             None
         } else {
@@ -144,8 +143,10 @@ pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeRasterize<'local
     out: JByteBuffer<'local>,
 ) -> jint {
     let result = (|| -> FfiResult<usize> {
-        let codepoint =
-            u32::try_from(codepoint).ok().and_then(char::from_u32).ok_or(ErrorCode::InvalidArgument)?;
+        let codepoint = u32::try_from(codepoint)
+            .ok()
+            .and_then(char::from_u32)
+            .ok_or(ErrorCode::InvalidArgument)?;
         let weight = if bold == 0 { Weight::Regular } else { Weight::Bold };
 
         let capacity =
@@ -165,10 +166,9 @@ pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeRasterize<'local
         // `Missing` never rasterises; anything else without an outline (a space,
         // for instance) still reports its kind so the caller can cache the
         // answer.
-        let bitmap = if kind == glyph_kind::MISSING {
-            None
-        } else {
-            stack.rasterize(glyph_id, px, weight)
+        let bitmap = match kind {
+            glyph_kind::MISSING => None,
+            _ => stack.rasterize(glyph_id, px, weight),
         };
 
         let (width, height, left, top, coverage) = match bitmap.as_ref() {

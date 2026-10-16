@@ -262,9 +262,9 @@ class MainActivity : Activity() {
                 ): Boolean {
                     // Finger down (positive dy) scrolls back into the history.
                     scrollAccumulator += distanceY
-                    val rowsMoved = (scrollAccumulator / atlas.cellHeight).toInt()
+                    val rowsMoved = (scrollAccumulator / metrics.height).toInt()
                     if (rowsMoved != 0) {
-                        scrollAccumulator -= rowsMoved * atlas.cellHeight
+                        scrollAccumulator -= rowsMoved * metrics.height
                         session.scroll(rowsMoved)
                         surface.requestRender()
                     }

@@ -217,7 +217,7 @@ internal class GlyphAtlas(val size: Int = ATLAS_SIZE) {
     }
 
     private fun key(codepoint: Int, bold: Boolean, px: Float): Long {
-        val sizeBits = Float.floatToIntBits(px).toLong() and 0x7FFFFFFFL
+        val sizeBits = px.toBits().toLong() and 0x7FFFFFFFL
         val boldBit = if (bold) 1L else 0L
         return (codepoint.toLong() shl KEY_SIZE_SHIFT) or (boldBit shl KEY_BOLD_SHIFT) or sizeBits
     }
