@@ -46,9 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `~`-terminated keys, F1–F4 as SS3, Shift+Tab, Alt as an ESC prefix or a
   modifier parameter (`CSI 1;3D`), the C0 mapping for Ctrl+letter — plus the
   extra-keys row (sticky Ctrl, Esc, Tab, arrows) and Enter as CR rather than LF.
-- JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2) and a
-  CI step that runs them: a wrong arrow-key form used to be visible only on a
-  device, now it fails the build.
+- JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2). They
+  are **not** wired into CI (user decision, 2026-10-16); run them with
+  `gradle testDebugUnitTest` when the encoder changes. While they were briefly
+  part of CI they caught a real bug on the first run: Shift+Tab sent
+  `ESC [ SPACE Z`, a stray space in a Kotlin string template.
 
 ### Changed
 

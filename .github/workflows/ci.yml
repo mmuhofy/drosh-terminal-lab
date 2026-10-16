@@ -144,11 +144,6 @@ jobs:
           fi
           gradle --version
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests (Kotlin)
-        # The input encoder is pure logic and its sequences are pinned as tests;
-        # a wrong arrow-key form is otherwise only visible on a device.
-        working-directory: android
-        run: gradle testDebugUnitTest
       - name: Assemble debug APK
         working-directory: android
         run: gradle assembleDebug

@@ -207,6 +207,14 @@ is closed; the install floor will keep rising — known, accepted risk.
   us; the device test exercises it through Ctrl+C. The sticky Ctrl is one-shot,
   and the extra-keys row is Ctrl/Esc/Tab plus the arrows until a device test
   says more is worth the screen space.
+- 2026-10-16: **User decision: no unit-test step in CI.** The encoder's JVM
+  tests stay in the tree (`android/app/src/test/`, run by hand with
+  `gradle testDebugUnitTest`), but CI does not execute them; the Android job
+  goes back to `assembleDebug` plus the APK content check. The cost is on the
+  record: while the step was in place it failed on its first run with a real
+  defect (Shift+Tab sent `ESC [ SPACE Z` — a stray space in a string template),
+  so encoder changes now lean on the device test instead. Recorded here so the
+  gap stays deliberate and is not silently re-added.
 ## 4. Target architecture
 
 ```

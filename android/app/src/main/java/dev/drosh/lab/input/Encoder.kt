@@ -109,8 +109,10 @@ internal object Encoder {
         // Tab+Shift+Alt.
         val prefixed = if (mods.alt) byteArrayOf(ESC.toByte()) else ByteArray(0)
         val simple = when (named) {
-            // Shift+Tab (CBT) is the only Tab variant with a sequence.
-            Named.Tab -> if (mods.shift) "$CSI Z".toByteArray(Charsets.US_ASCII) else byteArrayOf(0x09)
+            // Shift+Tab (CBT) is the only Tab variant with a sequence. Note the
+            // `${CSI}`: a bare `$CSI Z` would put a space in the sequence, which
+            // is exactly the bug the unit test caught before it reached a device.
+            Named.Tab -> if (mods.shift) "${CSI}Z".toByteArray(Charsets.US_ASCII) else byteArrayOf(0x09)
             // Enter is CR, not LF: the tty's ICRNL turns it into a newline for
             // the shell, and a raw-mode program expects CR.
             Named.Enter -> byteArrayOf(0x0d)
