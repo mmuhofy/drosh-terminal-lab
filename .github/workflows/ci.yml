@@ -51,6 +51,27 @@ jobs:
       - name: Clippy for Android target (deny warnings)
         run: cargo clippy --workspace --target aarch64-linux-android -- -D warnings
 
+  gate2-font:
+    # Phase B, Gate 2: the font crates cross-compile for Android, and the bundled
+    # font really produces the single-channel masks the Kotlin atlas is fed with.
+    # (Gate 1's workspace check already covers the compile half; this job is the
+    # named gate plus the behavioural half.)
+    name: Gate 2 — Rust font stack (swash glyphs)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Font stack against the bundled font
+        run: cargo test -p drosh-core --test font_tests
+      - name: Cross-check the font stack for Android
+        run: cargo check -p drosh-core --lib --target aarch64-linux-android
+
   android-build:
     name: Android assembleDebug
     runs-on: ubuntu-latest

@@ -86,5 +86,8 @@ policy.
 
 ## License
 
-Shipped under the same license as Drosh (GPL-3.0). Dependencies:
-`alacritty_terminal` and `chroot-ng` are Apache-2.0.
+GPL-3.0 — see [`LICENSE`](LICENSE). [`THIRD-PARTY.md`](THIRD-PARTY.md) lists
+what actually ships (the APK's font, the crates linked into
+`libdrosh_core.so`, and `chroot-ng` once it is vendored) with each license,
+read from the crates' own metadata rather than assumed: the bundled JetBrains
+Mono NL is OFL-1.1 and its license text travels inside the APK.

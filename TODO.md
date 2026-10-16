@@ -165,7 +165,10 @@ session. (Details: PLAN.md §7-Phase A)
 ### Acceptance
 - [x] **On a physical device (CI-built APK): `echo hello` renders from the
       snapshot — PASSED (2026-10-16).**
-      - Device: Android 15 phone (model not reported by the tester)
+      - Device: an Android 15 phone. The tester deliberately left the *model*
+        out (AGENTS.md §10.2 asks for it); Android version, kernel and driver
+        string are recorded below, so a regression can still be tied to a
+        platform.
       - Kernel: `Linux localhost 6.6.30-android15-8-g6b55ce738535-4k #1 SMP
         PREEMPT Thu Jan 1 00:00:00 UTC 1970 aarch64 Toybox`
       - GL: `OpenGL ES 3.2 v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`
@@ -201,17 +204,46 @@ session. (Details: PLAN.md §7-Phase A)
 ## Phase B — Renderer + input (~2 weeks)
 
 ### Gate 2 (in CI)
-- [ ] swash compiles for Android and produces glyph bitmaps (alpha)
-- [ ] Color-emoji path decision: swash CBDT/COLR → atlas, otherwise Android
-      native text overlay — decision recorded here
+- [x] swash compiles for Android and produces glyph bitmaps (alpha) — the
+      `Gate 2 — Rust font stack (swash glyphs)` job runs the font tests against
+      the *bundled* font and cross-checks the crate for
+      `aarch64-linux-android`. The tests assert the mask is single-channel
+      (`coverage.len() == width * height`), that a real glyph has ink, that
+      `' '` has none, and that the bold face is a different raster.
+- [x] **Color-emoji path decision (2026-10-16): swash colour bitmaps into a
+      second atlas pass — deferred, not dropped.** swash 0.2 rasterises
+      CBDT/COLR through `Source::ColorBitmap` / `Scaler::scale_color_bitmap`
+      (read from its source); what is missing is the renderer half: an RGBA
+      texture, a colour quad path and a per-glyph format flag in the atlas
+      record. Until then the bundled font is the only source of glyphs and
+      `fallback::resolve` reports `Substituted`/`Missing`, so the Kotlin side can
+      show that a codepoint had no glyph instead of silently drawing nonsense.
+      Rejected alternative: drawing emoji with Android text APIs over the GL
+      surface — it would put text drawing outside the renderer, which breaks the
+      damage list, the cursor cell and (later) selection geometry.
 
 ### Rust font stack
-- [ ] `font/shape.rs`: rustybuzz cluster → glyph
-- [ ] `font/raster.rs`: swash rasterize (alpha + metrics)
+- [x] `font/shape.rs`: rustybuzz (`Face::from_slice`, `UnicodeBuffer`,
+      `shape`) → glyph id/cluster/advance/offset; `liga`/`clig`/`calt`/`rlig`
+      are switched off explicitly, so the shipped NL font cannot ligate and a
+      future font swap cannot start either
+- [x] `font/raster.rs`: swash (`ScaleContext` → `Scaler` → `Render` with
+      `Source::Outline`) → alpha mask + bearings, and the cell metrics (cell
+      width from a *shaped* advance, so it is the same number the glyphs are
+      positioned with)
+- [x] `font/mod.rs`: `FontStack` (owns the face bytes, holds the scale context,
+      `Weight::Bold` falls back to regular if the bold file is unusable)
+- [x] `font/fallback.rs`: first cut — codepoint → glyph with the replacement
+      policy and an explicit `Substituted`/`Missing` answer; the full chain
+      (ASCII → Latin → CJK → emoji) is still open
+- [x] Font files bundled in the APK: JetBrains Mono NL 2.304, Regular + Bold +
+      `OFL.txt` in `android/app/src/main/assets/fonts/` with a README recording
+      the release URL and every SHA-256 (decision taken by the user, 2026-10-16:
+      bundled font, JetBrains Mono; the `NL` variant because the prototype has
+      no ligature support)
 - [ ] `font/atlas_api.rs`: Kotlin atlas record format (UV, metrics)
-- [ ] `font/fallback.rs`: fallback chain (ASCII → Latin → CJK → emoji)
-- [ ] `font/mod.rs`: FontStack + cache
-- [ ] `ffi/font.rs`: JNI shape/rasterize requests
+- [ ] `ffi/font.rs`: JNI rasterize/metrics requests (this is what lets the
+      Kotlin renderer stop baking its ASCII atlas from Android's typeface)
 
 ### Kotlin renderer
 - [ ] `renderer/atlas.kt`: bitmap atlas + 1x/1.5x/2x/3x size buckets

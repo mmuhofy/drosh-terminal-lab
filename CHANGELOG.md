@@ -9,7 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Nothing yet — Phase B (Rust font stack, Gate 2) starts here.
+- Phase B groundwork: the Rust font stack (`rust/core/src/font/`) — `rustybuzz`
+  shapes text, `swash` rasterises it.
+  - `shape.rs`: glyph ids, clusters, advances and offsets; `liga`/`clig`/`calt`/
+    `rlig` are disabled explicitly, so a terminal cell always shows the
+    character the guest wrote.
+  - `raster.rs`: alpha coverage masks with their bearings, plus the cell metrics
+    (cell width from a shaped advance, so the grid and the glyphs agree).
+  - `fallback.rs`: codepoint → glyph with the replacement policy and an explicit
+    `Substituted`/`Missing` answer instead of a silent hole.
+  - `mod.rs`: `FontStack` — owns the face bytes, keeps the rasteriser's context,
+    and treats a broken bold face as a warning rather than a failed session.
+- The font is bundled in the APK: JetBrains Mono NL 2.304, Regular + Bold and
+  `OFL.txt`, in `android/app/src/main/assets/fonts/` (provenance, license and
+  SHA-256s in that directory's README). Bundled rather than taken from
+  `/system/fonts` so a cell is the same pixel size on every OEM's build.
+- CI: a `Gate 2 — Rust font stack (swash glyphs)` job runs the font tests
+  against the bundled font and cross-checks the crate for
+  `aarch64-linux-android`.
+- `LICENSE` (GPL-3.0, taken verbatim from gnu.org) and `THIRD-PARTY.md`: every
+  component that is actually distributed — the bundled font and each crate
+  linked into `libdrosh_core.so` — with the license read from the crates' own
+  metadata. The font's OFL text ships inside the APK next to the font, which is
+  what the license requires.
 
 ## [0.2.0] - 2026-10-16
 
