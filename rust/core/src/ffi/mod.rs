@@ -9,6 +9,7 @@
 //! values are frozen and guarded by a test in this file.**
 
 pub mod events;
+pub mod font;
 pub mod session;
 pub mod snapshot;
 

@@ -1,9 +1,8 @@
 package dev.drosh.lab.render
 
-import android.graphics.Bitmap
 import android.opengl.GLES20
+import android.opengl.GLES30
 import android.opengl.GLSurfaceView
-import android.opengl.GLUtils
 import android.util.Log
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
@@ -14,18 +13,25 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * Phase A renderer: one textured quad per visible glyph plus one per non-default
- * cell background, all in a single interleaved vertex buffer and a single draw
- * call. It proves that the snapshot bridge feeds a GPU (D5) — the Phase B
- * renderer adds instancing, damage-limited redraw and the size buckets on top of
- * the same atlas interface.
+ * The Phase B renderer: one textured quad per visible glyph plus one per
+ * non-default background, all in a single interleaved vertex buffer and a single
+ * draw call, with the glyph coverage coming from the Rust font stack (D4) and
+ * the cell geometry from its metrics.
  *
- * GL ES 3.0 as decided in D3; `glVersion` is logged so a device that only
- * offers GL ES 2 can be identified (open item 5 in PLAN.md §8).
+ * Per-cell glyph results are cached in parallel arrays, so a steady-state frame
+ * does no map lookups and no allocation; the atlas is only touched when a cell's
+ * content changed. Damage-limited redraw and instancing are the next steps in
+ * the Phase B plan — this renderer still draws the whole grid.
+ *
+ * GL ES 3.0 as decided in D3; `glVersion` is logged so a device that only offers
+ * GL ES 2 can be identified (open item 5 in PLAN.md §8).
  */
 internal class TerminalRenderer(
     private val session: TerminalSession,
-    private val atlas: AsciiAtlas,
+    private val atlas: GlyphAtlas,
+    private val metrics: CellMetrics,
+    /** Pixel size the glyphs are rasterised at. */
+    private val fontPx: Float,
 ) : GLSurfaceView.Renderer {
 
     /** Set by the activity; called when the surface needs a different grid. */
@@ -53,6 +59,11 @@ internal class TerminalRenderer(
     private var columns = 0
     private var rows = 0
 
+    // Per-cell glyph cache (see `onDrawFrame`).
+    private var cellCodepoints = IntArray(0)
+    private var cellBold = BooleanArray(0)
+    private var cellEntries = arrayOfNulls<GlyphEntry>(0)
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         glVersion = GLES20.glGetString(GLES20.GL_VERSION) ?: "unknown"
         Log.i(TAG, "GL version: $glVersion")
@@ -63,7 +74,7 @@ internal class TerminalRenderer(
         }
         projectionUniform = GLES20.glGetUniformLocation(program, "uProjection")
         atlasUniform = GLES20.glGetUniformLocation(program, "uAtlas")
-        texture = buildTexture(atlas.bitmap)
+        texture = buildTexture()
 
         val buffers = IntArray(1)
         GLES20.glGenBuffers(1, buffers, 0)
@@ -85,11 +96,12 @@ internal class TerminalRenderer(
         height = surfaceHeight
         GLES20.glViewport(0, 0, width, height)
 
-        val newColumns = (width / atlas.cellWidth).coerceAtLeast(MIN_COLUMNS)
-        val newRows = (height / atlas.cellHeight).coerceAtLeast(MIN_ROWS)
+        val newColumns = (width / metrics.width).toInt().coerceAtLeast(MIN_COLUMNS)
+        val newRows = (height / metrics.height).toInt().coerceAtLeast(MIN_ROWS)
         columns = newColumns
         rows = newRows
         ensureCapacity(newColumns, newRows)
+        resetCellCache(newColumns, newRows)
         onGridChanged?.invoke(newColumns, newRows)
     }
 
@@ -105,20 +117,25 @@ internal class TerminalRenderer(
         if (session.pump() == NativeCore.INVALID_HANDLE) {
             return
         }
+        if (atlas.dirty) {
+            uploadAtlas()
+        }
 
         val state = session.stateArray
-        val cellWidth = atlas.cellWidth.toFloat()
-        val cellHeight = atlas.cellHeight.toFloat()
-        val displayOffset = state[NativeCore.STATE_DISPLAY_OFFSET]
+        val cellWidth = metrics.width
+        val cellHeight = metrics.height
+        val baselineOffset = metrics.ascent
         val cursorRow = state[NativeCore.STATE_CURSOR_ROW]
         val cursorColumn = state[NativeCore.STATE_CURSOR_COL]
         val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
+        val atlasSize = atlas.size.toFloat()
 
         floats.clear()
 
         for (row in 0 until rows) {
             for (column in 0 until columns) {
-                val at = (row * columns + column) * NativeCore.CELL_BYTES
+                val cell = row * columns + column
+                val at = cell * NativeCore.CELL_BYTES
                 val codepoint = buffer.getInt(at + NativeCore.CELL_OFFSET_CODEPOINT)
                 val fgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_FG)
                 val bgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_BG)
@@ -126,9 +143,11 @@ internal class TerminalRenderer(
 
                 if (flags and NativeCore.FLAG_HIDDEN != 0) continue
                 if (flags and NativeCore.FLAG_WIDE_CHAR_SPACER != 0) continue
+                if (flags and NativeCore.FLAG_LEADING_WIDE_CHAR_SPACER != 0) continue
 
                 var foreground = Palette.resolve(fgEncoded, Palette.DEFAULT_FOREGROUND)
                 var background = Palette.resolve(bgEncoded, Palette.DEFAULT_BACKGROUND)
+                val bold = flags and NativeCore.FLAG_BOLD != 0
 
                 if (flags and NativeCore.FLAG_INVERSE != 0) {
                     val swap = foreground
@@ -141,35 +160,57 @@ internal class TerminalRenderer(
                     row == cursorRow &&
                     column == cursorColumn
                 if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
-                    // A block cursor is the cell drawn in the cursor color.
+                    // A block cursor is the cell drawn in the cursor colour.
                     background = Palette.CURSOR
                     foreground = Palette.DEFAULT_BACKGROUND
                 }
 
                 val x = column * cellWidth
                 val y = row * cellHeight
-                val wide = flags and NativeCore.FLAG_WIDE_CHAR != 0
-                val cellSpan = if (wide) 2f else 1f
 
                 if (background != Palette.DEFAULT_BACKGROUND) {
-                    addSolid(x, y, cellWidth * cellSpan, cellHeight, background)
+                    addSolid(x, y, cellWidth, cellHeight, background)
                 }
 
-                if (codepoint != ' '.code) {
-                    val index = atlas.indexOf(codepoint)
-                    addGlyph(index, x, y, cellWidth * cellSpan, cellHeight, foreground)
-                    if (flags and NativeCore.FLAG_BOLD != 0) {
-                        // Cheap fake bold: a one-pixel second pass, like terminals
-                        // that cannot ask the font for a real bold face.
-                        addGlyph(index, x + 1f, y, cellWidth * cellSpan, cellHeight, foreground)
+                val blank = codepoint == ' '.code
+                if (!blank) {
+                    // One lookup per cell *change*; the frame loop reads the cache.
+                    var entry = cellEntries[cell]
+                    if (entry == null || cellCodepoints[cell] != codepoint || cellBold[cell] != bold) {
+                        entry = atlas.glyph(codepoint, bold, fontPx)
+                        cellEntries[cell] = entry
+                        cellCodepoints[cell] = codepoint
+                        cellBold[cell] = bold
+                    }
+
+                    if (entry != null && !entry.isBlank) {
+                        // `left` is relative to the pen position, `top` is the
+                        // distance from the baseline up to the bitmap's top edge.
+                        val left = x + entry.left
+                        val glyphTop = y + baselineOffset - entry.top
+                        addGlyph(
+                            left,
+                            glyphTop,
+                            entry.width,
+                            entry.height,
+                            entry.x / atlasSize,
+                            entry.y / atlasSize,
+                            (entry.x + entry.width) / atlasSize,
+                            (entry.y + entry.height) / atlasSize,
+                            foreground,
+                        )
                     }
                 }
 
                 if (flags and NativeCore.FLAG_ANY_UNDERLINE != 0) {
-                    addSolid(x, y + cellHeight * 0.92f, cellWidth, cellHeight * 0.06f, foreground)
+                    addSolid(x, y + baselineOffset + metrics.underline, cellWidth, metrics.rule, foreground)
                 }
                 if (flags and NativeCore.FLAG_STRIKEOUT != 0) {
-                    addSolid(x, y + cellHeight * 0.48f, cellWidth, cellHeight * 0.06f, foreground)
+                    // The font's own strikeout position is not on the wire yet
+                    // (TODO.md); a third of the ascent above the baseline is the
+                    // usual place and reads correctly at any size.
+                    val strike = y + baselineOffset - metrics.ascent * 0.35f
+                    addSolid(x, strike, cellWidth, metrics.rule, foreground)
                 }
 
                 if (cursorHere) {
@@ -183,12 +224,6 @@ internal class TerminalRenderer(
                     }
                 }
             }
-        }
-
-        // The scrollback offset is not drawn yet (Phase B: scrollbar), but it is
-        // part of the state array so the renderer cannot silently ignore it.
-        if (displayOffset != 0) {
-            Log.d(TAG, "display offset $displayOffset")
         }
 
         draw(floats)
@@ -231,25 +266,40 @@ internal class TerminalRenderer(
     }
 
     private fun addGlyph(
-        index: Int,
-        x: Float,
-        y: Float,
-        cellWidth: Float,
-        cellHeight: Float,
+        left: Float,
+        top: Float,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
+        u0: Float,
+        v0: Float,
+        u1: Float,
+        v1: Float,
         color: Int,
     ) {
         addQuad(
-            x, y, x + cellWidth, y + cellHeight,
-            atlas.uLeft(index), atlas.vTop(index), atlas.uRight(index), atlas.vBottom(index),
+            left,
+            top,
+            left + bitmapWidth,
+            top + bitmapHeight,
+            u0,
+            v0,
+            u1,
+            v1,
             color,
         )
     }
 
-    /** A solid rectangle in cell space: background, underline, strikeout, cursor. */
+    /** A solid rectangle: background, underline, strikeout or cursor. */
     private fun addSolid(x: Float, y: Float, rectWidth: Float, rectHeight: Float, color: Int) {
         addQuad(
-            x, y, x + rectWidth, y + rectHeight,
-            atlas.solidU, atlas.solidV, atlas.solidU, atlas.solidV,
+            x,
+            y,
+            x + rectWidth,
+            y + rectHeight,
+            atlas.solidU,
+            atlas.solidV,
+            atlas.solidU,
+            atlas.solidV,
             color,
         )
     }
@@ -311,33 +361,47 @@ internal class TerminalRenderer(
         }
     }
 
-    private fun buildTexture(bitmap: Bitmap): Int {
+    private fun resetCellCache(columns: Int, rows: Int) {
+        val cells = columns * rows
+        if (cellEntries.size == cells) {
+            // Same grid: only the stored codepoints have to be forgotten.
+            java.util.Arrays.fill(cellCodepoints, -1)
+            return
+        }
+        cellCodepoints = IntArray(cells) { -1 }
+        cellBold = BooleanArray(cells)
+        cellEntries = arrayOfNulls(cells)
+    }
+
+    /** The atlas is a single-channel texture; the shader tints its coverage. */
+    private fun buildTexture(): Int {
         val textures = IntArray(1)
         GLES20.glGenTextures(1, textures, 0)
         val handle = textures[0]
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, handle)
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MIN_FILTER,
-            GLES20.GL_NEAREST,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_MAG_FILTER,
-            GLES20.GL_NEAREST,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_S,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
-        GLES20.glTexParameteri(
-            GLES20.GL_TEXTURE_2D,
-            GLES20.GL_TEXTURE_WRAP_T,
-            GLES20.GL_CLAMP_TO_EDGE,
-        )
-        GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_NEAREST)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        // One byte per row is not a multiple of four: without this, rows would be
+        // read with padding and every glyph would shear.
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1)
+        uploadAtlas()
         return handle
+    }
+
+    private fun uploadAtlas() {
+        GLES30.glTexImage2D(
+            GLES20.GL_TEXTURE_2D,
+            0,
+            GLES30.GL_R8,
+            atlas.size,
+            atlas.size,
+            0,
+            GLES30.GL_RED,
+            GLES20.GL_UNSIGNED_BYTE,
+            atlas.directPixels(),
+        )
     }
 
     private fun buildProgram(): Int {
@@ -413,12 +477,13 @@ internal class TerminalRenderer(
         val FRAGMENT_SHADER = """
             #version 300 es
             precision mediump float;
+            // Single channel (GL_R8): the glyph coverage the Rust stack rasterised.
             uniform sampler2D uAtlas;
             in vec2 vTexCoord;
             in vec4 vColor;
             out vec4 fragColor;
             void main() {
-                float coverage = texture(uAtlas, vTexCoord).a;
+                float coverage = texture(uAtlas, vTexCoord).r;
                 fragColor = vec4(vColor.rgb, vColor.a * coverage);
             }
         """.trimIndent()

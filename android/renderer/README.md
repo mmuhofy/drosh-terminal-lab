@@ -15,8 +15,12 @@ cell buffer + per-line damage list) and **glyph bitmaps** coming from Rust.
 **Rules:** zero allocation in the render loop. Details:
 [`../../PLAN.md`](../../PLAN.md) §6.
 
-**Phase A:** the code that exists today is `TerminalRenderer` + `AsciiAtlas` +
-`Palette` in `android/app/src/main/java/dev/drosh/lab/render/` — one vertex
-buffer, one draw call, an Android-baked ASCII atlas standing in for D4's Rust
-font stack, and no damage limit yet. The components above are what Phase B
-turns that into; the split into this module happens then.
+**Phase B (current):** the code that exists is `TerminalRenderer` +
+`GlyphAtlas` + `CellMetrics` + `Palette` in
+`android/app/src/main/java/dev/drosh/lab/render/`. The glyphs are no longer
+baked from Android's typeface: Rust rasterises one coverage mask per codepoint
+(`ffi/font.rs` → `GlyphAtlas`), the cell geometry comes from the same font
+(`CellMetrics` ← `nativeFontMetrics`), and the atlas is a single-channel
+(`GL_R8`) texture the shader tints. Still missing from the components above:
+instancing, the damage-limited loop, the size buckets and the per-cell colour
+batching — the renderer still draws the whole grid every frame.

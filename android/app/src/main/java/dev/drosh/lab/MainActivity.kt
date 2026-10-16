@@ -17,7 +17,8 @@ import android.widget.Toast
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.input.TerminalInputView
-import dev.drosh.lab.render.AsciiAtlas
+import dev.drosh.lab.render.CellMetrics
+import dev.drosh.lab.render.GlyphAtlas
 import dev.drosh.lab.render.TerminalRenderer
 
 /**
@@ -29,11 +30,16 @@ import dev.drosh.lab.render.TerminalRenderer
  */
 class MainActivity : Activity() {
 
-    private lateinit var atlas: AsciiAtlas
     private lateinit var session: TerminalSession
     private lateinit var renderer: TerminalRenderer
     private lateinit var surface: GLSurfaceView
     private lateinit var input: TerminalInputView
+
+    /** Cell geometry from the bundled font, filled in by [loadFont]. */
+    private lateinit var metrics: CellMetrics
+
+    /** Pixel size the glyphs are rasterised at. */
+    private var fontPx = 0f
 
     private val handler = Handler(Looper.getMainLooper())
     private var blinkMillis = 0L
@@ -67,7 +73,13 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        atlas = AsciiAtlas(this)
+        // The font is the first thing that has to work: without its metrics there
+        // is no cell, and without a cell there is no grid.
+        if (!loadFont()) {
+            return
+        }
+
+        val atlas = GlyphAtlas()
         session = TerminalSession(
             program = SHELL,
             env = mapOf(
@@ -81,12 +93,12 @@ class MainActivity : Activity() {
             cwd = filesDir.absolutePath,
         )
 
-        renderer = TerminalRenderer(session, atlas)
+        renderer = TerminalRenderer(session, atlas, metrics, fontPx)
         renderer.onGridChanged = { columns, rows ->
             // The renderer reports from the GL thread; the session is only ever
             // touched from the UI thread.
             runOnUiThread {
-                session.resize(columns, rows, atlas.cellWidth, atlas.cellHeight)
+                session.resize(columns, rows, metrics.width.toInt(), metrics.height.toInt())
                 surface.requestRender()
             }
         }
@@ -125,6 +137,11 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        // A font failure leaves no surface: `onCreate` returned early and there is
+        // nothing to start.
+        if (!::surface.isInitialized) {
+            return
+        }
         surface.onResume()
         handler.removeCallbacks(framePoller)
         handler.postDelayed(framePoller, POLL_MILLIS)
@@ -132,23 +149,68 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         handler.removeCallbacks(framePoller)
-        surface.onPause()
+        if (::surface.isInitialized) {
+            surface.onPause()
+        }
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(framePoller)
-        session.close()
+        if (::session.isInitialized) {
+            session.close()
+        }
         super.onDestroy()
     }
 
+    /**
+     * Load the bundled faces and ask the Rust stack for the cell metrics.
+     *
+     * The fonts travel inside the APK (`assets/fonts/`) so a cell is the same
+     * size on every device; a failure here is a packaging bug and is reported as
+     * one instead of starting a session that cannot be laid out.
+     */
+    private fun loadFont(): Boolean {
+        val density = resources.displayMetrics.density
+        fontPx = FONT_SIZE_DP * density
+
+        return try {
+            val regular = assets.open(REGULAR_FONT).use { it.readBytes() }
+            val bold = assets.open(BOLD_FONT).use { it.readBytes() }
+
+            val init = NativeCore.nativeInitFont(regular, bold)
+            if (init != NativeCore.OK) {
+                toast("font: nativeInitFont failed ($init)")
+                return false
+            }
+
+            val loaded = CellMetrics.fromCore(fontPx)
+            if (loaded == null) {
+                toast("font: the faces produced no cell metrics")
+                return false
+            }
+            metrics = loaded
+
+            Log.i(
+                TAG,
+                "font: cell ${metrics.width}x${metrics.height}px at ${fontPx}px " +
+                    "(density $density, ascent ${metrics.ascent})",
+            )
+            true
+        } catch (error: Throwable) {
+            Log.e(TAG, "font assets failed to load", error)
+            toast("font: ${error.message}")
+            false
+        }
+    }
+
     private fun startSession() {
-        val metrics = resources.displayMetrics
-        val columns = (metrics.widthPixels / atlas.cellWidth).coerceAtLeast(2)
-        val rows = (metrics.heightPixels / atlas.cellHeight).coerceAtLeast(1)
+        val display = resources.displayMetrics
+        val columns = (display.widthPixels / metrics.width).toInt().coerceAtLeast(2)
+        val rows = (display.heightPixels / metrics.height).toInt().coerceAtLeast(1)
 
         val result = try {
-            session.start(columns, rows, atlas.cellWidth, atlas.cellHeight)
+            session.start(columns, rows, metrics.width.toInt(), metrics.height.toInt())
         } catch (error: Throwable) {
             toast("core library failed to load: ${error.message}")
             Log.e(TAG, "native setup failed", error)
@@ -165,7 +227,7 @@ class MainActivity : Activity() {
             TAG,
             "core ${session.coreVersion} session ${session.handle}: " +
                 "${session.columns}x${session.rows} cells of " +
-                "${atlas.cellWidth}x${atlas.cellHeight}px",
+                "${metrics.width.toInt()}x${metrics.height.toInt()}px",
         )
     }
 
@@ -249,5 +311,12 @@ class MainActivity : Activity() {
         const val DEL = 0x7f
         const val POLL_MILLIS = 32L
         const val BLINK_MILLIS = 500L
+
+        /** Font size in dp; the cell size and the whole grid follow from it. */
+        const val FONT_SIZE_DP = 12f
+
+        /** The faces bundled in the APK (Phase B: one font, everywhere identical). */
+        const val REGULAR_FONT = "fonts/JetBrainsMonoNL-Regular.ttf"
+        const val BOLD_FONT = "fonts/JetBrainsMonoNL-Bold.ttf"
     }
 }

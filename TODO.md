@@ -246,11 +246,28 @@ session. (Details: PLAN.md §7-Phase A)
       Kotlin renderer stop baking its ASCII atlas from Android's typeface)
 
 ### Kotlin renderer
-- [ ] `renderer/atlas.kt`: bitmap atlas + 1x/1.5x/2x/3x size buckets
+- [x] Glyphs from the Rust stack: `GlyphAtlas` asks `nativeRasterize` once per
+      (codepoint, weight, pixel size), packs the coverage masks into one
+      single-channel (`GL_R8`) texture and caches the result; the renderer holds
+      a per-cell cache, so a steady-state frame does no map lookups and no
+      allocation
+- [x] Cell geometry from the font: `CellMetrics` ← `nativeFontMetrics`, so the
+      grid, the baselines, the underline position and the rule thickness all
+      come from the bundled face (the Android-baked `AsciiAtlas` is gone)
+- [x] Bold uses the real bold face (the fake-bold second pass is gone)
+- [ ] `renderer/atlas.kt`: size buckets (1x/1.5x/2x/3x) — the atlas is keyed by
+      pixel size already, so buckets are about picking the size per zoom level
 - [ ] `renderer/shader.kt`: GLES3 instancing (vertex + quad shader)
 - [ ] `renderer/quads.kt`: instanced quad batch (glyphs + bg/cursor rects)
 - [ ] `renderer/loop.kt`: Choreographer + damage-limited redraw + frame skip
+      (the renderer still draws the whole grid every frame; the damage list the
+      bridge produces is unused)
 - [ ] Cursor: blink + shape (block/bar) without full redraws
+- [ ] Strikeout position: approximated at 35% of the ascent because the font's
+      own strikeout metrics are not on the wire yet (`nativeFontMetrics` would
+      need two more floats)
+- [ ] Italic/oblique: synthesised by skew once the glyph batch is instanced (no
+      italic face is bundled)
 
 ### Kotlin input
 - [ ] `input/encoder.kt`: xterm conventions — Ctrl/Alt/Shift, arrows,

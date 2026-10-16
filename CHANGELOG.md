@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   linked into `libdrosh_core.so` — with the license read from the crates' own
   metadata. The font's OFL text ships inside the APK next to the font, which is
   what the license requires.
+- The renderer draws glyphs from the Rust stack (`ffi/font.rs` →
+  `GlyphAtlas`): coverage masks are rasterised on demand, packed into one
+  single-channel (`GL_R8`) texture and cached by (codepoint, weight, pixel
+  size), with a per-cell cache in the renderer so the frame loop neither
+  allocates nor looks anything up. The cell geometry (`CellMetrics`) now comes
+  from `nativeFontMetrics`, so the grid, baselines and underline position are
+  all the bundled font's, and bold uses the real bold face instead of a second
+  pass. The Android-baked `AsciiAtlas` is gone.
 
 ## [0.2.0] - 2026-10-16
 
