@@ -40,6 +40,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   from `nativeFontMetrics`, so the grid, baselines and underline position are
   all the bundled font's, and bold uses the real bold face instead of a second
   pass. The Android-baked `AsciiAtlas` is gone.
+- **The renderer's vertex path was rebuilt** after reading alacritty's GLES2
+  renderer and Ghostty's cell shader (`PLAN.md` names the files): the grid now
+  becomes two small record streams — a 4-byte background colour per cell whose
+  position the vertex shader derives from `gl_InstanceID`, and a ~24-byte
+  foreground record per drawn thing — the quad is built in the vertex shader from
+  `gl_VertexID`, both are drawn instanced (two draw calls for a whole screen), and
+  both are streamed with `GL_STREAM_DRAW`. That is ~28 bytes per cell against up
+  to ~1 KB before, which is the path the device captures found the frame time in.
+  The damage-limited row slots went with it: at this size a full rebuild is
+  cheaper than the bookkeeping that avoided it.
 - The app hosts the bench endpoint itself (`bench/BenchServer.kt`, fixed port
   8080): read-only GETs for `/` (index), `/info` (device, kernel, core version,
   grid, cell metrics, GL, font) and `/bench.log` (one header line per app start,

@@ -5,33 +5,32 @@ import android.opengl.GLES30
 import android.opengl.GLSurfaceView
 import android.util.Log
 import dev.drosh.lab.bench.FrameStats
-import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.input.Selection
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /**
- * The Phase B renderer: one textured quad per visible glyph plus one per
- * non-default background, in a single interleaved vertex buffer and a single
- * draw call, with the glyph coverage coming from the Rust font stack (D4) and
- * the cell geometry from its metrics.
+ * The renderer, reshaped after reading alacritty's GLES2 path and Ghostty's cell
+ * shader (PLAN.md decision history, 2026-10-16 — the sources are named there):
  *
- * **Damage-limited:** every grid row owns a fixed slot in the buffer. A frame
- * rebuilds only the rows the engine reported as damaged (plus the row the cursor
- * sits on or just left) and uploads just those slots with `glBufferSubData`;
- * unused slots hold degenerate quads, which cost nothing to rasterise. The
- * engine gives a column range per damaged line, but the whole row is rebuilt —
- * that keeps the slot arithmetic honest, and a row is a few hundred quads.
+ * - **one instance per cell**, and the quad is built in the vertex shader from
+ *   `gl_VertexID`, so no vertex carries a position — the record *is* the cell,
+ *   which is what took Ghostty's per-cell cost down to ~20 bytes;
+ * - **two passes over two streams**: a dense background colour per cell (the
+ *   shader derives the cell from `gl_InstanceID`, so backgrounds store no
+ *   position either) and a compact list of foreground records;
+ * - both buffers are streamed per frame (`GL_STREAM_DRAW`, orphaning the old
+ *   storage), which is three buffer updates and two draw calls for a whole
+ *   screen — against up to five quads × six vertices × eight floats per cell
+ *   before, which is where the device captures found the frame time;
+ * - the glyph atlas is a single channel; the fragment shader tints it.
  *
- * Within a row, glyph lookups go through a per-cell cache, so a steady-state
- * frame neither allocates nor looks anything up.
- *
- * Still to come in Phase B: instancing, the size buckets and the font's own
- * strikeout metrics. GL ES 3.0 as decided in D3.
+ * GL ES 3.0 as decided in D3 (instancing and `glVertexAttribDivisor` are why);
+ * the test device reports 3.2. A driver that refuses a draw with no per-vertex
+ * attribute is covered by a dummy four-vertex buffer bound at a free location.
  */
 internal class TerminalRenderer(
     private val session: TerminalSession,
@@ -41,14 +40,14 @@ internal class TerminalRenderer(
     private val fontPx: Float,
     /** The current selection, drawn inverted like alacritty's default. */
     private val selection: Selection,
-    /** Frame timings for the Phase B acceptance numbers. */
+    /** Frame timings for the acceptance numbers. */
     private val stats: FrameStats,
 ) : GLSurfaceView.Renderer {
 
     /** Set by the activity; called when the surface needs a different grid. */
     var onGridChanged: ((columns: Int, rows: Int) -> Unit)? = null
 
-    /** Last GL failure, read and cleared by the activity's frame poller. */
+    /** Last GL failure, read and cleared by the activity. */
     @Volatile
     var lastGlError: String? = null
 
@@ -59,58 +58,54 @@ internal class TerminalRenderer(
     var glVersion: String = "unknown"
         private set
 
-    private var program = 0
-    private var projectionUniform = 0
-    private var atlasUniform = 0
-    private var texture = 0
-    private var vertexBuffer = 0
-    private var vertices: FloatBuffer? = null
-    private val atlasSize = atlas.size.toFloat()
-    private var width = 0
-    private var height = 0
+    private var records = CellRecords(MIN_COLUMNS, MIN_ROWS)
     private var columns = 0
     private var rows = 0
+    private var width = 0
+    private var height = 0
 
-    // Slot layout: each row owns a fixed stride of `floatsPerRow` floats, and
-    // `usedQuads[row]` says how much of it is real geometry to draw.
-    private var rowSlotQuads = 0
-    private var floatsPerRow = 0
-    private var usedQuads = IntArray(0)
-    /** The next frame rebuilds every row (first frame, resize, scroll). */
-    private var fullRebuild = true
+    private var backgroundProgram = 0
+    private var foregroundProgram = 0
+    private var backgroundVao = 0
+    private var backgroundVbo = 0
+    private var foregroundVao = 0
+    private var foregroundVbo = 0
+    private var texture = 0
 
-    // Per-cell glyph cache (see `buildRow`).
-    private var cellCodepoints = IntArray(0)
-    private var cellBold = BooleanArray(0)
-    private var cellEntries = arrayOfNulls<GlyphEntry>(0)
-
-    // Rows to rebuild this frame.
-    private var dirtyRows = BooleanArray(0)
-    /** Which rows were rebuilt this frame, so the upload phase can walk them. */
-    private var dirtyMark = IntArray(0)
-    private var lastCursorRow = -1
-    private var lastCursorVisible = false
-    private var drawnSelection = IntRange.EMPTY
+    private var backgroundProjection = 0
+    private var backgroundCellSize = 0
+    private var backgroundColumns = 0
+    private var foregroundProjection = 0
+    private var foregroundCellSize = 0
+    private var foregroundAtlasSize = 0
+    private var foregroundAtlas = 0
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         glVersion = GLES20.glGetString(GLES20.GL_VERSION) ?: "unknown"
         Log.i(TAG, "GL version: $glVersion")
 
-        program = buildProgram()
-        if (program == 0) {
+        backgroundProgram = buildProgram(BACKGROUND_VERTEX, BACKGROUND_FRAGMENT)
+        foregroundProgram = buildProgram(FOREGROUND_VERTEX, FOREGROUND_FRAGMENT)
+        if (backgroundProgram == 0 || foregroundProgram == 0) {
             return
         }
+
+        backgroundProjection = GLES20.glGetUniformLocation(backgroundProgram, "uProjection")
+        backgroundCellSize = GLES20.glGetUniformLocation(backgroundProgram, "uCellSize")
+        backgroundColumns = GLES20.glGetUniformLocation(backgroundProgram, "uColumns")
+        foregroundProjection = GLES20.glGetUniformLocation(foregroundProgram, "uProjection")
+        foregroundCellSize = GLES20.glGetUniformLocation(foregroundProgram, "uCellSize")
+        foregroundAtlasSize = GLES20.glGetUniformLocation(foregroundProgram, "uAtlasSize")
+        foregroundAtlas = GLES20.glGetUniformLocation(foregroundProgram, "uAtlas")
+
+        texture = buildTexture()
+
         // Rasterise ASCII before the first frame: a burst should not pay for
         // glyphs one JNI call at a time (device run 2).
         atlas.warmUp(fontPx, false)
 
-        projectionUniform = GLES20.glGetUniformLocation(program, "uProjection")
-        atlasUniform = GLES20.glGetUniformLocation(program, "uAtlas")
-        texture = buildTexture()
-
-        val buffers = IntArray(1)
-        GLES20.glGenBuffers(1, buffers, 0)
-        vertexBuffer = buffers[0]
+        buildBackgroundObjects()
+        buildForegroundObjects()
 
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnable(GLES20.GL_BLEND)
@@ -128,458 +123,205 @@ internal class TerminalRenderer(
         height = surfaceHeight
         GLES20.glViewport(0, 0, width, height)
 
-        val newColumns = (width / metrics.width).toInt().coerceAtLeast(MIN_COLUMNS)
-        val newRows = (height / metrics.height).toInt().coerceAtLeast(MIN_ROWS)
-        columns = newColumns
-        rows = newRows
-        resetGrid(newColumns, newRows)
-        onGridChanged?.invoke(newColumns, newRows)
+        columns = (width / metrics.width).toInt().coerceAtLeast(MIN_COLUMNS)
+        rows = (height / metrics.height).toInt().coerceAtLeast(MIN_ROWS)
+        records.resize(columns, rows)
+        onGridChanged?.invoke(columns, rows)
     }
 
     override fun onDrawFrame(gl: GL10?) {
         val startedNanos = System.nanoTime()
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
-        val buffer = session.cells ?: return
-        val floats = vertices ?: return
+        val cells = session.cells ?: return
         // Wait for the activity's resize to land before drawing a stale grid.
-        if (program == 0 || session.columns != columns || session.rows != rows) {
+        if (backgroundProgram == 0 || foregroundProgram == 0) {
+            return
+        }
+        if (session.columns != columns || session.rows != rows) {
             return
         }
 
-        // Everything that can bail out has bailed out: from here the damage is
-        // consumed, so the frame has to be drawn.
-        val damage = session.pump()
+        session.pump()
         val pumpEndNanos = System.nanoTime()
-        if (damage == NativeCore.INVALID_HANDLE) {
-            return
-        }
 
         if (atlas.dirty) {
             uploadAtlas()
         }
 
-        val state = session.stateArray
-        val cursorRow = state[NativeCore.STATE_CURSOR_ROW]
-        val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
-        val cursorMoved = cursorRow != lastCursorRow || cursorVisible != lastCursorVisible
+        records.build(
+            cells,
+            session.stateArray,
+            metrics,
+            selection,
+            cursorVisible,
+            atlas,
+            fontPx,
+        )
+        val buildEndNanos = System.nanoTime()
 
-        var damagedRowCount = 0
-        var buildEndNanos = 0L
-        var uploadEndNanos = 0L
+        uploadStreams()
+        val uploadEndNanos = System.nanoTime()
 
-        if (fullRebuild || damage == NativeCore.DAMAGE_FULL) {
-            // Vertex building for every row, then one upload of the whole buffer:
-            // the two phases are measured apart because a driver pays per call
-            // (TODO.md, device runs 2-3).
-            for (row in 0 until rows) {
-                buildRow(row, buffer, state)
-            }
-            damagedRowCount = rows
-            buildEndNanos = System.nanoTime()
-            uploadAllRows(floats)
-            uploadEndNanos = System.nanoTime()
-            fullRebuild = false
-        } else {
-            for (line in 0 until damage) {
-                markDirty(session.damageRow(line))
-            }
+        drawBackgrounds()
+        drawForegrounds()
 
-            // The cursor is not part of the engine's damage: it moves by itself.
-            if (cursorMoved) {
-                markDirty(cursorRow)
-                markDirty(lastCursorRow)
-            }
-
-            // Nor is the selection: mark what it covers now and what it covered
-            // last frame, which is all a drag can have changed.
-            if (selection.consumeDirty()) {
-                for (row in drawnSelection) {
-                    markDirty(row)
-                }
-                for (row in selection.rows) {
-                    markDirty(row)
-                }
-            }
-            drawnSelection = selection.rows
-
-            for (row in 0 until rows) {
-                if (dirtyRows[row]) {
-                    buildRow(row, buffer, state)
-                    dirtyMark[damagedRowCount] = row
-                    damagedRowCount += 1
-                    dirtyRows[row] = false
-                }
-            }
-            buildEndNanos = System.nanoTime()
-
-            // One upload for the whole buffer when most rows are dirty: a
-            // scrolling screen dirties everything, and a driver pays per call.
-            if (damagedRowCount * UPLOAD_WHOLE_RATIO >= rows) {
-                uploadAllRows(floats)
-            } else {
-                for (index in 0 until damagedRowCount) {
-                    uploadRow(floats, dirtyMark[index])
-                }
-            }
-            uploadEndNanos = System.nanoTime()
-        }
-
-        lastCursorRow = cursorRow
-        lastCursorVisible = cursorVisible
-
-        draw()
-
-        // CPU-side work per phase: snapshot, build + upload, submit. GPU time
-        // would need timer queries, which are out of scope for the prototype.
         stats.record(
             startedNanos,
             pumpEndNanos,
             buildEndNanos,
             uploadEndNanos,
             System.nanoTime(),
-            damagedRowCount,
+            records.foregroundCount,
         )
-
-        if (cursorShape == NativeCore.CURSOR_HIDDEN) {
-            lastCursorRow = -1
-        }
-    }
-
-    /** Build every quad of one row into that row's slot. */
-    private fun buildRow(row: Int, buffer: java.nio.ByteBuffer, state: IntArray) {
-        val floats = vertices ?: return
-        val base = row * floatsPerRow
-        floats.limit(base + floatsPerRow)
-        floats.position(base)
-
-        val cursorRow = state[NativeCore.STATE_CURSOR_ROW]
-        val cursorColumn = state[NativeCore.STATE_CURSOR_COL]
-        val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
-
-        for (column in 0 until columns) {
-            val cell = row * columns + column
-            val at = cell * NativeCore.CELL_BYTES
-            val codepoint = buffer.getInt(at + NativeCore.CELL_OFFSET_CODEPOINT)
-            val fgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_FG)
-            val bgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_BG)
-            val flags = buffer.getShort(at + NativeCore.CELL_OFFSET_FLAGS).toInt() and 0xffff
-
-            if (flags and NativeCore.FLAG_HIDDEN != 0) continue
-            if (flags and NativeCore.FLAG_WIDE_CHAR_SPACER != 0) continue
-            if (flags and NativeCore.FLAG_LEADING_WIDE_CHAR_SPACER != 0) continue
-
-            var foreground = Palette.resolve(fgEncoded, Palette.DEFAULT_FOREGROUND)
-            var background = Palette.resolve(bgEncoded, Palette.DEFAULT_BACKGROUND)
-            val bold = flags and NativeCore.FLAG_BOLD != 0
-
-            if (flags and NativeCore.FLAG_INVERSE != 0) {
-                val swap = foreground
-                foreground = background
-                background = swap
-            }
-
-            if (selection.contains(row, column)) {
-                // alacritty's default selection colours are the inverted cell
-                // (`InvertedCellColors::default`: background = the primary
-                // foreground, text = the primary background).
-                background = Palette.DEFAULT_FOREGROUND
-                foreground = Palette.DEFAULT_BACKGROUND
-            }
-
-            val cursorHere = cursorVisible &&
-                cursorShape != NativeCore.CURSOR_HIDDEN &&
-                row == cursorRow &&
-                column == cursorColumn
-            if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
-                // A block cursor is the cell drawn in the cursor colour; it wins
-                // over the selection, like it does in alacritty.
-                background = Palette.CURSOR
-                foreground = Palette.DEFAULT_BACKGROUND
-            }
-
-            val x = column * metrics.width
-            val y = row * metrics.height
-
-            if (background != Palette.DEFAULT_BACKGROUND) {
-                addSolid(x, y, metrics.width, metrics.height, background)
-            }
-
-            if (codepoint != ' '.code) {
-                // One lookup per cell *change*; the frame loop reads the cache.
-                var entry = cellEntries[cell]
-                if (entry == null || cellCodepoints[cell] != codepoint || cellBold[cell] != bold) {
-                    entry = atlas.glyph(codepoint, bold, fontPx)
-                    cellEntries[cell] = entry
-                    cellCodepoints[cell] = codepoint
-                    cellBold[cell] = bold
-                }
-
-                if (entry != null && !entry.isBlank) {
-                    // `left` is relative to the pen position, `top` is the
-                    // distance from the baseline up to the bitmap's top edge.
-                    val glyphLeft = x + entry.left
-                    val glyphTop = y + metrics.ascent - entry.top
-                    addGlyph(
-                        glyphLeft,
-                        glyphTop,
-                        entry.width,
-                        entry.height,
-                        entry.x / atlasSize,
-                        entry.y / atlasSize,
-                        (entry.x + entry.width) / atlasSize,
-                        (entry.y + entry.height) / atlasSize,
-                        foreground,
-                    )
-                }
-            }
-
-            if (flags and NativeCore.FLAG_ANY_UNDERLINE != 0) {
-                addSolid(
-                    x,
-                    y + metrics.ascent + metrics.underline,
-                    metrics.width,
-                    metrics.rule,
-                    foreground,
-                )
-            }
-            if (flags and NativeCore.FLAG_STRIKEOUT != 0) {
-                // The font's own strikeout position is not on the wire yet
-                // (TODO.md); a third of the ascent above the baseline is the
-                // usual place and reads correctly at any size.
-                addSolid(
-                    x,
-                    y + metrics.ascent - metrics.ascent * 0.35f,
-                    metrics.width,
-                    metrics.rule,
-                    foreground,
-                )
-            }
-
-            if (cursorHere) {
-                when (cursorShape) {
-                    NativeCore.CURSOR_BEAM ->
-                        addSolid(x, y, metrics.width * 0.12f, metrics.height, Palette.CURSOR)
-                    NativeCore.CURSOR_UNDERLINE ->
-                        addSolid(
-                            x,
-                            y + metrics.height * 0.86f,
-                            metrics.width,
-                            metrics.height * 0.14f,
-                            Palette.CURSOR,
-                        )
-                    NativeCore.CURSOR_HOLLOW ->
-                        addSolid(
-                            x,
-                            y + metrics.height * 0.9f,
-                            metrics.width,
-                            metrics.height * 0.1f,
-                            Palette.CURSOR,
-                        )
-                }
-            }
-        }
-
-        // Pad the rest of the slot with nothing: the row records how many quads
-        // it actually produced and `draw` only submits that prefix, so the
-        // padding the first device build wrote (and paid for) is gone.
-        var used = (floats.position() - base) / FLOATS_PER_QUAD
-        if (used > rowSlotQuads) {
-            Log.e(TAG, "row $row used $used quads, slot holds $rowSlotQuads")
-            used = rowSlotQuads
-        }
-        usedQuads[row] = used
-        floats.limit(floats.capacity())
-    }
-
-    private fun markDirty(row: Int) {
-        if (row in dirtyRows.indices) {
-            dirtyRows[row] = true
-        }
-    }
-
-    private fun uploadAllRows(floats: FloatBuffer) {
-        floats.position(0)
-        floats.limit(rows * floatsPerRow)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
-        GLES20.glBufferData(
-            GLES20.GL_ARRAY_BUFFER,
-            rows * floatsPerRow * FLOAT_BYTES,
-            floats,
-            GLES20.GL_DYNAMIC_DRAW,
-        )
-        floats.limit(floats.capacity())
-    }
-
-    private fun uploadRow(floats: FloatBuffer, row: Int) {
-        val used = usedQuads[row]
-        if (used <= 0) {
-            return
-        }
-
-        val floatsToUpload = used * FLOATS_PER_QUAD
-        floats.position(row * floatsPerRow)
-        floats.limit(row * floatsPerRow + floatsToUpload)
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
-        GLES20.glBufferSubData(
-            GLES20.GL_ARRAY_BUFFER,
-            row * floatsPerRow * FLOAT_BYTES,
-            floatsToUpload * FLOAT_BYTES,
-            floats,
-        )
-        floats.limit(floats.capacity())
     }
 
     /**
-     * Submit the rows.
-     *
-     * One `glDrawArrays` per row, each over its used prefix: a single call would
-     * need either degenerate padding (what the first device build paid for) or a
-     * compacted buffer (which would have to move rows on every damage). A row is
-     * one call, and a full-screen damage burst is a few dozen — cheap next to
-     * building them.
+     * Both streams go up whole, with the old storage orphaned: a sub-range update
+     * cannot be orphaned, and at these sizes one upload is cheaper than the
+     * bookkeeping that would avoid it.
      */
-    private fun draw() {
-        if (rows == 0) {
-            return
-        }
+    private fun uploadStreams() {
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, backgroundVbo)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            columns * rows * CellRecords.BACKGROUND_BYTES,
+            records.backgroundBytes,
+            GLES20.GL_STREAM_DRAW,
+        )
 
-        GLES20.glUseProgram(program)
-        GLES20.glUniform4f(projectionUniform, -1f, 1f, 2f / width, -2f / height)
-        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-        GLES20.glUniform1i(atlasUniform, 0)
-
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
-
-        val stride = FLOATS_PER_VERTEX * FLOAT_BYTES
-        GLES20.glEnableVertexAttribArray(ATTRIB_POSITION)
-        GLES20.glVertexAttribPointer(ATTRIB_POSITION, 2, GLES20.GL_FLOAT, false, stride, 0)
-        GLES20.glEnableVertexAttribArray(ATTRIB_TEX_COORD)
-        GLES20.glVertexAttribPointer(ATTRIB_TEX_COORD, 2, GLES20.GL_FLOAT, false, stride, 2 * FLOAT_BYTES)
-        GLES20.glEnableVertexAttribArray(ATTRIB_COLOR)
-        GLES20.glVertexAttribPointer(ATTRIB_COLOR, 4, GLES20.GL_FLOAT, false, stride, 4 * FLOAT_BYTES)
-
-        val quadsPerRow = rowSlotQuads
-        for (row in 0 until rows) {
-            val used = usedQuads[row]
-            if (used > 0) {
-                GLES20.glDrawArrays(
-                    GLES20.GL_TRIANGLES,
-                    row * quadsPerRow * QUAD_VERTICES,
-                    used * QUAD_VERTICES,
-                )
-            }
-        }
-
-        GLES20.glDisableVertexAttribArray(ATTRIB_POSITION)
-        GLES20.glDisableVertexAttribArray(ATTRIB_TEX_COORD)
-        GLES20.glDisableVertexAttribArray(ATTRIB_COLOR)
-    }
-
-    private fun addGlyph(
-        left: Float,
-        top: Float,
-        bitmapWidth: Int,
-        bitmapHeight: Int,
-        u0: Float,
-        v0: Float,
-        u1: Float,
-        v1: Float,
-        color: Int,
-    ) {
-        addQuad(left, top, left + bitmapWidth, top + bitmapHeight, u0, v0, u1, v1, color)
-    }
-
-    /** A solid rectangle: background, underline, strikeout or cursor. */
-    private fun addSolid(x: Float, y: Float, rectWidth: Float, rectHeight: Float, color: Int) {
-        addQuad(
-            x,
-            y,
-            x + rectWidth,
-            y + rectHeight,
-            atlas.solidU,
-            atlas.solidV,
-            atlas.solidU,
-            atlas.solidV,
-            color,
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, foregroundVbo)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            records.foregroundCount * CellRecords.RECORD_BYTES,
+            records.foregroundBytes,
+            GLES20.GL_STREAM_DRAW,
         )
     }
 
-    private fun addQuad(
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
-        uLeft: Float,
-        vTop: Float,
-        uRight: Float,
-        vBottom: Float,
-        color: Int,
-    ) {
-        val floats = vertices ?: return
-        val red = channel(color, 16)
-        val green = channel(color, 8)
-        val blue = channel(color, 0)
-
-        vertex(floats, left, top, uLeft, vTop, red, green, blue)
-        vertex(floats, right, top, uRight, vTop, red, green, blue)
-        vertex(floats, left, bottom, uLeft, vBottom, red, green, blue)
-        vertex(floats, right, top, uRight, vTop, red, green, blue)
-        vertex(floats, right, bottom, uRight, vBottom, red, green, blue)
-        vertex(floats, left, bottom, uLeft, vBottom, red, green, blue)
-    }
-
-    private fun vertex(
-        floats: FloatBuffer,
-        x: Float,
-        y: Float,
-        u: Float,
-        v: Float,
-        red: Float,
-        green: Float,
-        blue: Float,
-    ) {
-        floats.put(x)
-        floats.put(y)
-        floats.put(u)
-        floats.put(v)
-        floats.put(red)
-        floats.put(green)
-        floats.put(blue)
-        floats.put(1f)
-    }
-
-    /** Called on resize: new slot layout, new cell cache, everything rebuilt. */
-    private fun resetGrid(newColumns: Int, newRows: Int) {
-        rowSlotQuads = newColumns * QUADS_PER_CELL + SLACK_QUADS_PER_ROW
-        floatsPerRow = rowSlotQuads * QUAD_VERTICES * FLOATS_PER_VERTEX
-
-        val floats = newRows * floatsPerRow
-        if (vertices == null || floats > vertices!!.capacity()) {
-            vertices = ByteBuffer
-                .allocateDirect(floats * FLOAT_BYTES)
-                .order(ByteOrder.nativeOrder())
-                .asFloatBuffer()
-        } else {
-            vertices!!.clear()
+    private fun drawBackgrounds() {
+        val instances = columns * rows
+        if (instances == 0) {
+            return
         }
 
-        // No need to wipe the buffer: `fullRebuild` writes every slot — with real
-        // quads or with degenerate padding — before anything is drawn.
+        GLES20.glUseProgram(backgroundProgram)
+        GLES20.glUniform4f(backgroundProjection, -1f, 1f, 2f / width, -2f / height)
+        GLES20.glUniform2f(backgroundCellSize, metrics.width, metrics.height)
+        GLES20.glUniform1i(backgroundColumns, columns)
+        GLES30.glBindVertexArray(backgroundVao)
+        GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, QUAD_VERTICES, instances)
+        GLES30.glBindVertexArray(0)
+    }
 
-        val cells = newColumns * newRows
-        cellCodepoints = IntArray(cells) { -1 }
-        cellBold = BooleanArray(cells)
-        cellEntries = arrayOfNulls(cells)
+    private fun drawForegrounds() {
+        val instances = records.foregroundCount
+        if (instances == 0) {
+            return
+        }
 
-        dirtyRows = BooleanArray(newRows)
-        dirtyMark = IntArray(newRows)
-        usedQuads = IntArray(newRows)
-        fullRebuild = true
-        lastCursorRow = -1
-        lastCursorVisible = false
-        drawnSelection = IntRange.EMPTY
+        GLES20.glUseProgram(foregroundProgram)
+        GLES20.glUniform4f(foregroundProjection, -1f, 1f, 2f / width, -2f / height)
+        GLES20.glUniform2f(foregroundCellSize, metrics.width, metrics.height)
+        GLES20.glUniform2f(foregroundAtlasSize, atlas.size.toFloat(), atlas.size.toFloat())
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(foregroundProgram, "uAtlas"), 0)
+        GLES30.glBindVertexArray(foregroundVao)
+        GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, QUAD_VERTICES, instances)
+        GLES30.glBindVertexArray(0)
+    }
+
+    /** One `uint` colour per cell, fetched once per instance. */
+    private fun buildBackgroundObjects() {
+        val buffers = IntArray(2)
+        GLES30.glGenVertexArrays(1, buffers, 0)
+        backgroundVao = buffers[0]
+        GLES20.glGenBuffers(1, buffers, 0)
+        backgroundVbo = buffers[0]
+
+        GLES30.glBindVertexArray(backgroundVao)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, backgroundVbo)
+        GLES30.glEnableVertexAttribArray(ATTRIB_BACKGROUND_COLOR)
+        GLES30.glVertexAttribIPointer(
+            ATTRIB_BACKGROUND_COLOR,
+            1,
+            GLES30.GL_UNSIGNED_INT,
+            CellRecords.BACKGROUND_BYTES,
+            0,
+        )
+        GLES30.glVertexAttribDivisor(ATTRIB_BACKGROUND_COLOR, 1)
+        bindDummyAttribute(ATTRIB_DUMMY_BACKGROUND)
+        GLES30.glBindVertexArray(0)
+    }
+
+    /** The ~24-byte record per drawn thing, all of it per instance. */
+    private fun buildForegroundObjects() {
+        val buffers = IntArray(2)
+        GLES30.glGenVertexArrays(1, buffers, 0)
+        foregroundVao = buffers[0]
+        GLES20.glGenBuffers(1, buffers, 0)
+        foregroundVbo = buffers[0]
+
+        GLES30.glBindVertexArray(foregroundVao)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, foregroundVbo)
+
+        val stride = CellRecords.RECORD_BYTES
+        GLES30.glEnableVertexAttribArray(ATTRIB_ATLAS_RECT)
+        GLES30.glVertexAttribIPointer(ATTRIB_ATLAS_RECT, 2, GLES30.GL_UNSIGNED_SHORT, stride, 0)
+        GLES30.glEnableVertexAttribArray(ATTRIB_GLYPH_SIZE)
+        GLES30.glVertexAttribIPointer(ATTRIB_GLYPH_SIZE, 2, GLES30.GL_UNSIGNED_SHORT, stride, 4)
+        GLES30.glEnableVertexAttribArray(ATTRIB_OFFSET)
+        GLES30.glVertexAttribIPointer(ATTRIB_OFFSET, 2, GLES30.GL_SHORT, stride, 8)
+        GLES30.glEnableVertexAttribArray(ATTRIB_GRID_POS)
+        GLES30.glVertexAttribIPointer(ATTRIB_GRID_POS, 2, GLES30.GL_UNSIGNED_SHORT, stride, 12)
+        GLES30.glEnableVertexAttribArray(ATTRIB_COLOR)
+        GLES30.glVertexAttribPointer(
+            ATTRIB_COLOR,
+            4,
+            GLES30.GL_UNSIGNED_BYTE,
+            true,
+            stride,
+            16,
+        )
+
+        for (attribute in ATTRIB_ATLAS_RECT..ATTRIB_COLOR) {
+            GLES30.glVertexAttribDivisor(attribute, 1)
+        }
+        bindDummyAttribute(ATTRIB_DUMMY_FOREGROUND)
+        GLES30.glBindVertexArray(0)
+    }
+
+    /**
+     * A four-vertex buffer at a location the shaders ignore.
+     *
+     * Some drivers refuse a draw where every enabled attribute is per-instance;
+     * one dummy attribute with divisor 0 costs 16 bytes and removes the question.
+     */
+    private fun bindDummyAttribute(location: Int) {
+        val buffers = IntArray(1)
+        GLES20.glGenBuffers(1, buffers, 0)
+
+        val vertices = ByteBuffer
+            .allocateDirect(QUAD_VERTICES * 2 * FLOAT_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .asFloatBuffer()
+        for (vertex in 0 until QUAD_VERTICES) {
+            vertices.put(vertex.toFloat())
+            vertices.put(0f)
+        }
+        vertices.flip()
+
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, dummyVbo)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            QUAD_VERTICES * 2 * FLOAT_BYTES,
+            vertices,
+            GLES20.GL_STATIC_DRAW,
+        )
+        GLES30.glEnableVertexAttribArray(location)
+        GLES30.glVertexAttribPointer(location, 2, GLES20.GL_FLOAT, false, 2 * FLOAT_BYTES, 0)
+        GLES30.glVertexAttribDivisor(location, 0)
     }
 
     /** The atlas is a single-channel texture; the shader tints its coverage. */
@@ -613,9 +355,9 @@ internal class TerminalRenderer(
         )
     }
 
-    private fun buildProgram(): Int {
-        val vertexShader = compile(GLES20.GL_VERTEX_SHADER, VERTEX_SHADER)
-        val fragmentShader = compile(GLES20.GL_FRAGMENT_SHADER, FRAGMENT_SHADER)
+    private fun buildProgram(vertexSource: String, fragmentSource: String): Int {
+        val vertexShader = compile(GLES20.GL_VERTEX_SHADER, vertexSource)
+        val fragmentShader = compile(GLES20.GL_FRAGMENT_SHADER, fragmentSource)
         if (vertexShader == 0 || fragmentShader == 0) {
             return 0
         }
@@ -662,39 +404,83 @@ internal class TerminalRenderer(
         const val MIN_COLUMNS = 2
         const val MIN_ROWS = 1
         const val FLOAT_BYTES = 4
-        const val QUAD_VERTICES = 6
-        const val FLOATS_PER_VERTEX = 8
-        const val FLOATS_PER_QUAD = QUAD_VERTICES * FLOATS_PER_VERTEX
-        const val ATTRIB_POSITION = 0
-        const val ATTRIB_TEX_COORD = 1
-        const val ATTRIB_COLOR = 2
+        const val QUAD_VERTICES = 4
 
-        /**
-         * Quads one cell can need: background, glyph, underline, strikeout and a
-         * beam/underline/hollow cursor. A block cursor replaces the background.
-         */
-        /** Upload the whole buffer when at least this share of rows is dirty. */
-        const val UPLOAD_WHOLE_RATIO = 3
+        const val ATTRIB_BACKGROUND_COLOR = 0
+        const val ATTRIB_DUMMY_BACKGROUND = 1
 
-        const val QUADS_PER_CELL = 5
-        const val SLACK_QUADS_PER_ROW = 4
+        const val ATTRIB_ATLAS_RECT = 0
+        const val ATTRIB_GLYPH_SIZE = 1
+        const val ATTRIB_OFFSET = 2
+        const val ATTRIB_GRID_POS = 3
+        const val ATTRIB_COLOR = 4
+        const val ATTRIB_DUMMY_FOREGROUND = 5
 
-        val VERTEX_SHADER = """
+        val BACKGROUND_VERTEX = """
             #version 300 es
-            layout(location = 0) in vec2 aPosition;
-            layout(location = 1) in vec2 aTexCoord;
-            layout(location = 2) in vec4 aColor;
+            layout(location = 0) in uint aColor;
             uniform vec4 uProjection;
-            out vec2 vTexCoord;
+            uniform vec2 uCellSize;
+            uniform int uColumns;
             out vec4 vColor;
             void main() {
-                vTexCoord = aTexCoord;
-                vColor = aColor;
-                gl_Position = vec4(uProjection.xy + uProjection.zw * aPosition, 0.0, 1.0);
+                int column = gl_InstanceID % uColumns;
+                int row = gl_InstanceID / uColumns;
+                vec2 corner = vec2(
+                    float(gl_VertexID == 1 || gl_VertexID == 3),
+                    float(gl_VertexID == 2 || gl_VertexID == 3)
+                );
+                vec2 cell = vec2(float(column), float(row)) * uCellSize;
+                gl_Position = vec4(uProjection.xy + uProjection.zw * (cell + corner * uCellSize), 0.0, 1.0);
+                vColor = vec4(
+                    float((aColor >> 16) & 0xffu),
+                    float((aColor >> 8) & 0xffu),
+                    float(aColor & 0xffu),
+                    1.0
+                ) / 255.0;
             }
         """.trimIndent()
 
-        val FRAGMENT_SHADER = """
+        val BACKGROUND_FRAGMENT = """
+            #version 300 es
+            precision mediump float;
+            in vec4 vColor;
+            out vec4 fragColor;
+            void main() {
+                fragColor = vColor;
+            }
+        """.trimIndent()
+
+        val FOREGROUND_VERTEX = """
+            #version 300 es
+            layout(location = 0) in uvec2 aAtlasRect;
+            layout(location = 1) in uvec2 aGlyphSize;
+            layout(location = 2) in ivec2 aOffset;
+            layout(location = 3) in uvec2 aGridPos;
+            layout(location = 4) in vec4 aColor;
+            uniform vec4 uProjection;
+            uniform vec2 uCellSize;
+            uniform vec2 uAtlasSize;
+            out vec2 vTexCoord;
+            out vec4 vColor;
+            void main() {
+                vec2 corner = vec2(
+                    float(gl_VertexID == 1 || gl_VertexID == 3),
+                    float(gl_VertexID == 2 || gl_VertexID == 3)
+                );
+                vec2 size = vec2(aGlyphSize);
+                vec2 cell = vec2(aGridPos) * uCellSize;
+                gl_Position = vec4(
+                    uProjection.xy + uProjection.zw * (cell + vec2(aOffset) + corner * size),
+                    0.0,
+                    1.0
+                );
+                vTexCoord = (vec2(aAtlasRect) + corner * size) / uAtlasSize;
+                vColor = aColor;
+            }
+        """.trimIndent()
+
+        val FOREGROUND_FRAGMENT = """
             #version 300 es
             precision mediump float;
             // Single channel (GL_R8): the glyph coverage the Rust stack rasterised.

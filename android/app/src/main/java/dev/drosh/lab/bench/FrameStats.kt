@@ -39,7 +39,7 @@ internal class FrameStats {
     private var buildTotal = 0f
     private var uploadTotal = 0f
     private var drawTotal = 0f
-    private var damagedRows = 0
+    private var recordsTotal = 0
     private var lastFrameNanos = 0L
 
     /** While frozen, [record] is ignored: the numbers stop moving. */
@@ -52,7 +52,7 @@ internal class FrameStats {
         buildEndNanos: Long,
         uploadEndNanos: Long,
         drawEndNanos: Long,
-        damagedRowCount: Int,
+        recordCount: Int,
     ) {
         if (isFrozen) {
             return
@@ -68,7 +68,7 @@ internal class FrameStats {
         buildTotal += buildMillis
         uploadTotal += uploadMillis
         drawTotal += drawMillis
-        damagedRows += damagedRowCount
+        recordsTotal += recordCount
         frames += 1
         maxWork = maxOf(maxWork, total)
         work[bucket(total)] += 1
@@ -121,7 +121,7 @@ internal class FrameStats {
 
     fun averageUpload(): Float = average(uploadTotal)
 
-    fun averageRows(): Float = rowsPerFrame()
+    fun averageRecords(): Float = recordsPerFrame()
 
     fun averageDraw(): Float = average(drawTotal)
 
@@ -143,10 +143,10 @@ internal class FrameStats {
         // any other device.
         return java.lang.String.format(
             java.util.Locale.ROOT,
-            "%s%d frames · %.0f rows/f · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f up %.1f draw %.1f · jank %d",
+            "%s%d frames · %.0f rec/f · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f up %.1f draw %.1f · jank %d",
             if (isFrozen) "FROZEN " else "",
             frames,
-            rowsPerFrame(),
+            recordsPerFrame(),
             slowFrames(),
             slowShare(),
             maxWork,
@@ -165,9 +165,9 @@ internal class FrameStats {
     fun logLine(): String =
         java.lang.String.format(
             java.util.Locale.ROOT,
-            "frames=%d rows_per_frame=%.1f slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f upload=%.1f draw=%.1f jank=%d interval_max=%.1f",
+            "frames=%d records_per_frame=%.1f slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f upload=%.1f draw=%.1f jank=%d interval_max=%.1f",
             frames,
-            rowsPerFrame(),
+            recordsPerFrame(),
             slowFrames(),
             slowShare(),
             maxWork,
@@ -181,9 +181,11 @@ internal class FrameStats {
 
     private fun average(total: Float): Float = if (frames == 0) 0f else total / frames
 
-    /** Rows rebuilt per frame on average: build cost scales with this, so without
-     *  it two runs cannot be compared (TODO.md, device runs 2 and 3). */
-    private fun rowsPerFrame(): Float = if (frames == 0) 0f else damagedRows.toFloat() / frames
+    /**
+     * Foreground records per frame on average: build and upload cost scale with
+     * this, so without it two runs cannot be compared (TODO.md, device runs 2-3).
+     */
+    private fun recordsPerFrame(): Float = if (frames == 0) 0f else recordsTotal.toFloat() / frames
 
     private fun bucket(millis: Float): Int = when {
         millis < 2f -> 0
