@@ -61,6 +61,12 @@ curl http://127.0.0.1:8080/info; curl http://127.0.0.1:8080/bench.log
 | `GET /info` | device, Android, kernel, core version, grid, cell metrics, density, GL, font |
 | `GET /bench.log` | one header line per app start, then one line per frozen capture |
 
+Each capture carries the **scenario label**: `scenarios.sh` writes the name into
+`files/bench-label` (it runs as the app's own uid), the app reads that file on the
+next freeze, stamps the line with `label=<name>` and deletes it. The label is
+written by the script — the app never reads the screen — so a pulled line says
+which workload it belongs to without anyone having to remember the order.
+
 The server binds **every interface** on a fixed port (`8080`, logged at startup
 along with the addresses to try), so whichever address the bridge can reach
 answers — the device's Wi-Fi address or its loopback. That makes the endpoint

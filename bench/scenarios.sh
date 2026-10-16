@@ -19,16 +19,22 @@
 
 FILES=/data/data/dev.drosh.lab/files
 BIG="$FILES/bench-big"
+# The app reads this on the next freeze and stamps the capture with it, so the
+# pulled log says which scenario each line belongs to. This script runs as the
+# app's own uid, so it can write into the app's directory.
+LABEL="$FILES/bench-label"
 
 scenario() {
     name="$1"
     shift
+    echo "$name" > "$LABEL"
     echo ""
     echo "BENCH:$name starting"
     "$@"
     echo "BENCH:$name done — tap the status line (freeze), then tap again (reset)"
 }
 
+echo "steady" > "$LABEL"
 echo "BENCH:steady — ordinary use: type a few commands, run 'ls -la', let it idle."
 echo "When the screen is quiet: tap the status line once, then again to reset."
 

@@ -266,6 +266,23 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Take the pending scenario label, if one was set; one-shot by design. */
+    private fun consumeBenchLabel(): String? {
+        val file = java.io.File(filesDir, BENCH_LABEL_FILE)
+        if (!file.exists()) {
+            return null
+        }
+
+        return try {
+            val label = file.readText().trim().replace(' ', '-').take(32)
+            file.delete()
+            label.ifEmpty { null }
+        } catch (error: Throwable) {
+            Log.w(BENCH_TAG, "cannot read ${BENCH_LABEL_FILE}: ${error.message}")
+            null
+        }
+    }
+
     /**
      * Device, build, font and grid facts as one line: what a device run has to
      * record, and what `GET /info` answers.
@@ -332,7 +349,12 @@ class MainActivity : Activity() {
 
         ensureBenchHeader()
 
-        val line = stats.logLine()
+        // A capture is labelled by whoever set the next scenario up: the scenario
+        // script writes `files/bench-label` (it runs as this app's uid), and the
+        // label is consumed here. Nothing else from the terminal leaves the
+        // device — this file is written by the script, not read from the grid.
+        val label = consumeBenchLabel()
+        val line = if (label == null) stats.logLine() else "label=$label ${stats.logLine()}"
         Log.i(BENCH_TAG, line)
         try {
             java.io.File(filesDir, BENCH_FILE).appendText("$line\n")
@@ -652,5 +674,8 @@ class MainActivity : Activity() {
         /** Bench artefacts: one logcat tag and one append-only file. */
         const val BENCH_TAG = "DroshLabBench"
         const val BENCH_FILE = "bench.log"
+
+        /** Written by `bench/scenarios.sh` before each scenario, read on freeze. */
+        const val BENCH_LABEL_FILE = "bench-label"
     }
 }

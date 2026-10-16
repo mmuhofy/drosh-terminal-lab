@@ -90,6 +90,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The atlas rasterises printable ASCII once, from the GL thread, before the first
   frame: a burst used to pay one JNI call per new glyph plus a full atlas
   re-upload per frame, which is where the 120 ms frame came from.
+- Captures are labelled: `bench/scenarios.sh` writes `files/bench-label` before
+  each scenario (it runs as the app's uid), the app stamps the next frozen line
+  with `label=<name>` and consumes the file. Two device runs had produced numbers
+  nobody could attribute to a workload.
 - The frame line carries **rows/frame** and the vertex building is measured apart
   from the **uploading**: `build` scales with how many rows were rebuilt, so
   without that number two device runs cannot be compared (runs 2 and 3 differed
