@@ -19,7 +19,6 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import dev.drosh.lab.bench.BenchServer
 import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
@@ -52,13 +51,6 @@ class MainActivity : Activity() {
 
     /** Frame timings; the status row shows them and a tap freezes them. */
     private val stats = FrameStats()
-
-    /**
-     * The bench endpoint the app hosts on loopback, so the numbers can be pulled
-     * instead of retyped (`bench/README.md`). Started once the font metrics are
-     * known, stopped with the activity.
-     */
-    private var benchServer: BenchServer? = null
 
     /** The log's header is written once, when the GL version is known. */
     private var benchHeaderWritten = false
@@ -221,10 +213,6 @@ class MainActivity : Activity() {
 
         startSession()
 
-        // The endpoint is the app's own: a reviewer pulls from it (through the
-        // bridge the device tester sets up), and the app never dials out.
-        benchServer = BenchServer(java.io.File(filesDir, BENCH_FILE)) { benchInfoLine() }
-        benchServer?.start()
     }
 
     override fun onResume() {
@@ -251,7 +239,6 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         frameLoop.stop()
-        benchServer?.stop()
         if (::session.isInitialized) {
             session.close()
         }

@@ -266,6 +266,17 @@ session. (Details: PLAN.md §7-Phase A)
       nothing. The engine gives a column range per damaged line, but the whole
       row is rebuilt — that keeps the slot arithmetic honest, and a row is a few
       hundred quads.
+- [ ] **Vertex path rewrite** (design and sources: PLAN.md decision history,
+      2026-10-16 — alacritty's `text/gles2.rs` + `res/gles2/*`, Ghostty's
+      `cell_text.v.glsl` + `generic.zig`):
+      - [ ] one ~20-byte record per cell (atlas rect, bearings, packed fg/bg,
+            flags) instead of up to 5 quads × 6 vertices × 8 floats
+      - [ ] quad built in the vertex shader from `gl_VertexID`, drawn instanced
+            (`glVertexAttribDivisor`), two passes (backgrounds, then glyphs)
+      - [ ] keep the damage-limited row slots and the whole-buffer upload when
+            most rows are dirty
+      - [ ] keep the frame counters, so the rewrite is judged by a device
+            capture rather than by the argument that it must be faster
 - [ ] `renderer/atlas.kt`: size buckets (1x/1.5x/2x/3x) — the atlas is keyed by
       pixel size already, so buckets are about picking the size per zoom level
 - [ ] `renderer/shader.kt` / `quads.kt`: GLES3 instancing (the buffer is already
