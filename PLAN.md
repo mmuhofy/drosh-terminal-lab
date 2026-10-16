@@ -288,6 +288,49 @@ is closed; the install floor will keep rising — known, accepted risk.
   bridging to `adb forward`. The app never dials out, and the endpoint serves
   bench numbers and device facts, never terminal content, which is also why
   `INTERNET` is the only permission the prototype declares.
+- 2026-10-16: **Renderer vertex path re-read against alacritty and Ghostty, and
+  redesigned for the phone** (user request). Sources read, not remembered:
+  - alacritty `src/renderer/text/gles2.rs` + `res/gles2/text.v.glsl`: one vertex
+    buffer drawn **twice** with a `renderingPass` uniform (pass 0 places cell
+    backgrounds from `cellCoords`, pass 1 places glyphs from `glyphCoords`+`uv`);
+    colours are packed as normalised `u8x4`; quads are **indexed** (4 vertices, 6
+    indices) and batches are bounded by the 16-bit `glDrawElements` limit
+    (`MAX_INDEX_COUNT`, gles2.rs:221-224).
+  - alacritty `src/renderer/rects.rs:240-320`: a rect vertex is `vec2 position` +
+    `u8x4` colour — 12 bytes, four per quad.
+  - Ghostty `src/renderer/shaders/glsl/cell_text.v.glsl`: the vertex shader builds
+    the quad itself — `gl_VertexID` picks the corner of a 4-vertex triangle strip —
+    and the record is **per cell** (`glyph_pos`, `glyph_size`, `bearings`,
+    `grid_pos`, `color`, `atlas`, `glyph_bools`), with no per-vertex position at
+    all. Its `bearings.y` is measured from the bottom of the cell.
+  - Ghostty `src/renderer/generic.zig`: two pipelines (`cell_bg`, `cell_text`);
+    backgrounds from a **dense** per-cell array, foregrounds from **per-row lists**
+    with reserved overdraw capacity (`fg_row_capacity = columns * 3`) drawn
+    **instanced** (`.instance_count = fg_count`, generic.zig:1979); buffers synced
+    per frame; the renderer is its own thread behind a display link and is
+    triple-buffered so a frame never waits on the previous one (OpenGL.zig:32-33).
+  Ours today, by comparison: up to 5 quads per cell × 6 vertices × 8 floats — up
+  to ~1 KB per cell — uploaded as one `glBufferSubData` per dirty row, and both
+  device captures put the cost exactly there (`pump` 1.5 ms, `draw` 0.7 ms,
+  `build` 13–63 ms depending on how many rows were rebuilt).
+  **Adaptation for GLES 3.0 on a phone** — Ghostty's `std430` storage buffer is
+  desktop-only, so the background colour travels as an attribute instead:
+  1. one **record per cell** (atlas rect, bearings, packed fg/bg, flags) of ~20
+     bytes, uploaded per changed row;
+  2. the quad is built in the vertex shader from `gl_VertexID` and drawn
+     **instanced** (`glVertexAttribDivisor` + 4 template vertices) — GLES 3.0 has
+     it and the test device reports 3.2;
+  3. **two passes** over the same buffer (backgrounds, then glyphs) with
+     alacritty's normalised `u8x4` colour packing;
+  4. our damage-limited row slots stay (Ghostty's per-row lists with reserved
+     capacity are the same idea), including the whole-buffer upload when most rows
+     are dirty — that is the mobile answer to buffer orphaning, since a sub-range
+     upload cannot be orphaned;
+  5. a grayscale atlas now and a colour page when the emoji decision lands —
+     Ghostty carries an `atlas` attribute for exactly that.
+  The claim is that CPU→GPU data per damaged cell drops by roughly an order of
+  magnitude; it is not claimed to be enough until a device capture says so.
+
 ## 4. Target architecture
 
 ```

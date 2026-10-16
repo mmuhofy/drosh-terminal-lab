@@ -1,83 +1,46 @@
-# bench — measurement dashboard
+## What remains
 
-Two measurement families:
+**One thing:** the app counts frame work and, when you tap the status line, freezes
+it into one immutable line — `DroshLabBench` in logcat, the same line appended to
+`files/bench.log`. The line is:
 
-1. **Render/parse (Phase B):** frame work and jank, split into the phases a frame
-   is made of (`pump` = snapshot, `build` = vertices + upload, `draw` = GL
-   submit). Measured in the app, frozen on demand, sent as one logcat line.
-2. **Guest runtime (Phase C):** identical workloads compared against Termux
-   (proot reference) on the same device — `apt install`, `go build`, file-heavy
-   work.
-
-Results are recorded in [`../TODO.md`](../TODO.md) (device runs) and
-[`../PLAN.md`](../PLAN.md). No performance claim is made without measurements
-(AGENTS.md rule 2).
-
-## How a Phase B measurement is taken
-
-The first device run showed why the *process* has to be defined as carefully as
-the code: the status line was a rolling 240-frame window updated twice a second,
-so the number had changed by the time it was written down (and the workload —
-`yes | head -30000` — was not recorded). What follows from that:
-
-1. **The counters only grow.** Frame count, work buckets (`<2 / <4 / <8 / <16 /
-   <33 / ≥33 ms`), phase averages, jank count and the single worst frame. The
-   line never changes what it already reported.
-2. **Tapping the status line freezes it** (amber), writes one
-   `DroshLabBench` logcat line, and appends the same line to
-   `files/bench.log`. A second tap resets and resumes. Frozen numbers are an
-   artefact; live ones are a glance.
-3. **`>8ms` is the acceptance numerator**: the share of drawn frames whose work
-   exceeded 8 ms is what "frame p99 < 8 ms" means in practice, and it can be read
-   off a frozen line.
-4. **The workload is a scenario, not a stress test:**
-
-   ```sh
-   adb push bench/scenarios.sh /sdcard/
-   # in the app's terminal:
-   sh /sdcard/scenarios.sh
-   ```
-
-   `steady` (typing and `ls -la`), `scroll-cat` (a 2 MB burst), `scroll-ls`
-   (`ls -R /system`) and `runaway` (`yes | head -30000`, the case that first
-   produced 114 ms). Tap the status line after each `BENCH:<name> done`.
-
-## Getting the numbers to the reviewer
-
-The app **hosts** the endpoint (`bench/BenchServer.kt`); nothing is uploaded from
-the device and the app never dials out. Whoever reviews the numbers pulls from
-it:
-
-```sh
-./bench/fetch-results.sh scroll-cat          # writes bench-results/<stamp>-scroll-cat.txt
-./bench/fetch-results.sh scroll-cat --push   # ... and pushes it on a bench-results branch
-# or directly:
-curl http://127.0.0.1:8080/info; curl http://127.0.0.1:8080/bench.log
+```text
+frames=… rows_per_frame=… slow8=… (…) max=… pump=… build=… upload=… draw=… jank=…
 ```
 
-| Path | What it answers |
-|---|---|
-| `GET /` | a short index naming the other paths |
-| `GET /info` | device, Android, kernel, core version, grid, cell metrics, density, GL, font |
-| `GET /bench.log` | one header line per app start, then one line per frozen capture |
+- `pump` is the snapshot (Rust: PTY + parser + grid), `build` is Kotlin vertex
+  building, `upload` is the GL buffer update, `draw` is the submit.
+- `rows/frame` matters because `build` and `upload` scale with how many rows were
+  rebuilt: without it two runs cannot be compared (they were not, twice).
+- `>8ms` is the acceptance numerator; jank means work over two refreshes, not the
+  gap between frames (that counted idle time and reported 15/16 while nothing was
+  happening).
 
-The server binds **every interface** on a fixed port (`8080`, logged at startup
-along with the addresses to try), so whichever address the bridge can reach
-answers — the device's Wi-Fi address or its loopback. That makes the endpoint
-reachable from the network the device is on: accepted for a lab build (it serves
-bench numbers and device facts, never terminal content, and the API is three
-read-only GETs), and not what a shipped build would do — that one binds loopback
-and leaves the bridging to `adb forward`.
+If you want a number recorded, tap the line and paste it. That is the whole
+process.
 
-**The app has to be running** for the endpoint to exist; that is the trade the
-device tester accepted in exchange for never having to copy numbers by hand.
+## What was cancelled, and why
 
-If the bridge is not in place, the machine with `adb` is enough:
+A fuller harness grew here today and was cut (user decision, 2026-10-16): a
+scenario script, a label file so captures stamp themselves, a result collector for
+a machine with `adb`, and an HTTP endpoint the app hosts so the reviewer can pull
+`/info` and `/bench.log` without anyone copying text. All of it *worked* — a device
+reading was pulled end to end without a single paste — but it cost the person
+holding the phone: open the app (or the endpoint is gone), keep a bridge up, run
+the script, tap once per scenario, in order, and keep the order in mind. For two
+numbers that were still not comparable, because the metric that matters
+(`rows/frame`) was not even in the line.
 
-```sh
-adb forward tcp:8080 tcp:8080     # then the same ./bench/fetch-results.sh
-adb logcat -d -s DroshLabBench    # or just the logcat lines
-```
+The lesson is recorded rather than the tooling: **a measurement harness has to be
+cheaper than the measurement it produces, and this one was not.**
 
-Rejected: an in-app upload to a GitHub API (a token inside a debug APK —
-AGENTS.md §11) or to a public paste service (a terminal phoning home).
+## Caveat on the git history
+
+The endpoint, the scripts and the pull path are in the repository's history
+(commits for issues #18-#24). They are removed from the tree; the reasoning above
+is the record.
+
+## Phase C
+
+Guest runtime timings (Termux/proot comparison) are still to come and belong
+here when they do.

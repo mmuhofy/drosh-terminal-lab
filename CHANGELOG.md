@@ -197,6 +197,13 @@ from the snapshot bridge.
 
 ### Removed
 
+- The bench harness: the app-hosted HTTP endpoint (`bench/BenchServer.kt`), the
+  `INTERNET` permission it needed, the scenario/label/result scripts and the pull
+  path (user decision, 2026-10-16 — it worked, but it cost the person holding the
+  phone more than the numbers were worth; `bench/README.md` records why). What
+  stays is the frame counters and the frozen line in `DroshLabBench` logcat plus
+  `files/bench.log`.
+
 - A device screenshot that was accidentally committed with a docs change
   (`git add -A` swept it up): it is removed from the tree and
   `Screenshot_*.{jpg,png}` is now ignored. It remains in the history of commit
