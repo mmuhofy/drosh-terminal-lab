@@ -72,7 +72,8 @@ jobs:
       - name: Cross-check the font stack for Android
         run: cargo check -p drosh-core --lib --target aarch64-linux-android
 
-  android-build:    name: Android assembleDebug
+  android-build:
+    name: Android assembleDebug
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
