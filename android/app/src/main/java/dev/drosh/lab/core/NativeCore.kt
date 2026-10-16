@@ -83,6 +83,20 @@ internal object NativeCore {
 
     fun damageLength(rows: Int): Int = 1 + DAMAGE_STRIDE * rows
 
+    // --- font (ffi::font) ---
+    const val GLYPH_HEADER_BYTES = 24
+    const val FONT_METRICS_LEN = 5
+    const val GLYPH_DIRECT = 0
+    const val GLYPH_SUBSTITUTED = 1
+    const val GLYPH_MISSING = 2
+
+    /** Metrics float array: cell width, cell height, ascent, descent, underline. */
+    const val METRIC_CELL_WIDTH = 0
+    const val METRIC_CELL_HEIGHT = 1
+    const val METRIC_ASCENT = 2
+    const val METRIC_DESCENT = 3
+    const val METRIC_UNDERLINE = 4
+
     // --- native methods (ffi::session, ffi::snapshot, ffi::events) ---
 
     external fun nativeVersion(): String
@@ -119,4 +133,17 @@ internal object NativeCore {
     external fun nativePollWakeup(id: Long): Boolean
 
     external fun nativeDrainEvents(id: Long): String
+
+    // --- font (ffi::font) ---
+
+    external fun nativeInitFont(regular: ByteArray, bold: ByteArray?): Int
+
+    external fun nativeFontMetrics(px: Float, out: FloatArray): Int
+
+    external fun nativeRasterize(
+        codepoint: Int,
+        bold: Boolean,
+        px: Float,
+        out: java.nio.ByteBuffer,
+    ): Int
 }

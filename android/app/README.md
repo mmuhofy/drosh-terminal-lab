@@ -8,13 +8,12 @@
 - JNI bindings (`libdrosh_core.so`, package `core/`)
 - Keyboard input through an invisible text editor (package `input/`)
 
-## Phase A status
+## Status
 
-Implemented and green in CI (run 38870912218): the app starts
-`/system/bin/sh`, streams the snapshot buffer into the GL renderer and accepts
-typed commands. What is missing is device acceptance, not code — see
-[`../../TODO.md`](../../TODO.md).
+Phase A is closed (the device acceptance passed, see [`../../TODO.md`](../../TODO.md));
+Phase B is in progress. The app now loads its font from `assets/fonts/` into
+the Rust stack at startup and takes the cell metrics from it, so the grid comes
+from the same face the glyphs are rasterised from.
 
-Everything lives in this one module for Phase A. Renderer:
-[`../renderer`](../renderer) (Phase B, when the code justifies a module);
-input: [`../input`](../input).
+Everything lives in this one module for now. Renderer:
+[`../renderer`](../renderer); input: [`../input`](../input).
