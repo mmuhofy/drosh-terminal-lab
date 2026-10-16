@@ -114,6 +114,40 @@ is closed; the install floor will keep rising — known, accepted risk.
   Kotlin palette (16 ANSI colors, primary fg/bg, `DIM_FACTOR = 0.66`, the
   16..231 cube and 232..255 gray ramp) were read from
   `alacritty/src/config/color.rs` and `alacritty/src/display/color.rs`.
+- 2026-10-16: **`alacritty_terminal::tty` evaluated, deliberately not used.**
+  Compilation is *not* the reason: `pub mod tty` is unconditional in 0.26.0
+  (`alacritty_terminal/src/lib.rs:15`), so Gate 1 has compiled `tty/unix.rs`
+  for `aarch64-linux-android` all along. The reasons are behavioural:
+  1. `tty::from_fd` calls `ShellUser::from_env()?` unconditionally
+     (`tty/unix.rs:213`) — even when an explicit shell is passed. It needs
+     `USER`/`HOME`/`SHELL` from the environment or a `getpwuid_r` entry, and
+     returns `Err` when neither exists. An Android app process normally has
+     none of those variables set, and its uid has no passwd entry — we would
+     have to mutate our own process environment just to start a session.
+  2. It injects desktop environment (`ALACRITTY_WINDOW_ID`, `WINDOWID`, `USER`,
+     `HOME`) that must not leak into the Phase C guest, and removes
+     `XDG_ACTIVATION_TOKEN`/`DESKTOP_STARTUP_ID` — alacritty's assumptions, not
+     a guest session's.
+  3. The OEM survival path (slave-as-stdio when the login-tty spawn fails) and
+     the `TIOCGPTPEER` → `/dev/pts/N` → `ptsname_r` fallback chain are ours;
+     adding them to upstream code means a fork-and-patch commitment, which D1
+     reserves for chroot-ng.
+  4. Its `/usr/bin/login` branch is `#[cfg(target_os = "macos")]`
+     (`tty/unix.rs:161-192`); on Linux/Android the default is
+     `Command::new(shell)`. Recorded so this is not re-raised later as an
+     Android login-tty risk.
+  Cost of the decision: ~451 lines of PTY code and the mirrored private token
+  constants (already an open item) instead of upstream's tested implementation
+  *and* its free `EventedPty`. Benefit: child argv/env/winsize stay ours, which
+  is what Phase C's chroot-ng argv mapping (`-u`, `-w`, `-b`, `-E`) and the OEM
+  fallbacks need.
+  **Revisit trigger:** PTY bugs we cannot fix locally, or once Phase C's spawn
+  is stable — then re-evaluate `Options { shell: Shell::new(program, args), env,
+  working_directory }` with that evidence, not before.
+  Taken from `tty/unix.rs` immediately: `IUTF8` on the master fd (it sets it in
+  `tty/unix.rs:206-211`; bionic does not), so a backspace erases a whole
+  multibyte character in the guest. Implemented with a host test that reads the
+  termios back through `stty -g`.
 
 ## 4. Target architecture
 

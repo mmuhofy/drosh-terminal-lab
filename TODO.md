@@ -159,11 +159,14 @@ session. (Details: PLAN.md §7-Phase A)
 ### Acceptance
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
       renders from the snapshot — device + kernel recorded here.
-      The APK is the `debug-apk` artifact of run 38870912218:
-      `gh run download 38870912218 -n debug-apk` (or the run page in a
-      browser) → unzip → `adb install app-debug.apk`, or copy it to the device
-      and open it (it is debug-signed, so "install unknown apps" must be
-      allowed for the file manager). If something looks wrong,
+      The APK is attached to the `phase-a-device-test` pre-release
+      (<https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test>),
+      built from run 38870912218: 1,265,279 bytes, SHA-256
+      `c1781a6be48de99282fd17658a1b52ddd35ab633b63f59560b4c54f631157217`.
+      `adb install app-debug.apk`, or copy it to the device and open it (it is
+      debug-signed, so "install unknown apps" must be allowed for the file
+      manager). The artifact on the run page needs an authenticated session;
+      the release asset does not. If something looks wrong,
       `adb logcat -s DroshLab` matters: the app logs the core version, the
       grid size, `GL_VERSION` and every failure, and shows a toast for each
       failure.

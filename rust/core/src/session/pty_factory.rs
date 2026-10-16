@@ -353,10 +353,7 @@ fn set_utf8_input(master_fd: RawFd) {
 
     termios.c_iflag |= libc::IUTF8;
     if unsafe { libc::tcsetattr(master_fd, libc::TCSANOW, &termios) } != 0 {
-        log::warn!(
-            "drosh-core: tcsetattr(IUTF8) failed: {}",
-            io::Error::last_os_error()
-        );
+        log::warn!("drosh-core: tcsetattr(IUTF8) failed: {}", io::Error::last_os_error());
     }
 }
 
