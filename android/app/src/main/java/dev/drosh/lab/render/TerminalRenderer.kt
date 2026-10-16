@@ -86,6 +86,8 @@ internal class TerminalRenderer(
 
     // Rows to rebuild this frame.
     private var dirtyRows = BooleanArray(0)
+    /** Which rows were rebuilt this frame, so the upload phase can walk them. */
+    private var dirtyMark = IntArray(0)
     private var lastCursorRow = -1
     private var lastCursorVisible = false
     private var drawnSelection = IntRange.EMPTY
@@ -162,11 +164,21 @@ internal class TerminalRenderer(
         val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
         val cursorMoved = cursorRow != lastCursorRow || cursorVisible != lastCursorVisible
 
+        var damagedRowCount = 0
+        var buildEndNanos = 0L
+        var uploadEndNanos = 0L
+
         if (fullRebuild || damage == NativeCore.DAMAGE_FULL) {
+            // Vertex building for every row, then one upload of the whole buffer:
+            // the two phases are measured apart because a driver pays per call
+            // (TODO.md, device runs 2-3).
             for (row in 0 until rows) {
                 buildRow(row, buffer, state)
             }
+            damagedRowCount = rows
+            buildEndNanos = System.nanoTime()
             uploadAllRows(floats)
+            uploadEndNanos = System.nanoTime()
             fullRebuild = false
         } else {
             for (line in 0 until damage) {
@@ -194,21 +206,40 @@ internal class TerminalRenderer(
             for (row in 0 until rows) {
                 if (dirtyRows[row]) {
                     buildRow(row, buffer, state)
-                    uploadRow(floats, row)
+                    dirtyMark[damagedRowCount] = row
+                    damagedRowCount += 1
                     dirtyRows[row] = false
                 }
             }
+            buildEndNanos = System.nanoTime()
+
+            // One upload for the whole buffer when most rows are dirty: a
+            // scrolling screen dirties everything, and a driver pays per call.
+            if (damagedRowCount * UPLOAD_WHOLE_RATIO >= rows) {
+                uploadAllRows(floats)
+            } else {
+                for (index in 0 until damagedRowCount) {
+                    uploadRow(floats, dirtyMark[index])
+                }
+            }
+            uploadEndNanos = System.nanoTime()
         }
 
         lastCursorRow = cursorRow
         lastCursorVisible = cursorVisible
 
-        val buildEndNanos = System.nanoTime()
         draw()
 
         // CPU-side work per phase: snapshot, build + upload, submit. GPU time
         // would need timer queries, which are out of scope for the prototype.
-        stats.record(startedNanos, pumpEndNanos, buildEndNanos, System.nanoTime())
+        stats.record(
+            startedNanos,
+            pumpEndNanos,
+            buildEndNanos,
+            uploadEndNanos,
+            System.nanoTime(),
+            damagedRowCount,
+        )
 
         if (cursorShape == NativeCore.CURSOR_HIDDEN) {
             lastCursorRow = -1
@@ -543,6 +574,7 @@ internal class TerminalRenderer(
         cellEntries = arrayOfNulls(cells)
 
         dirtyRows = BooleanArray(newRows)
+        dirtyMark = IntArray(newRows)
         usedQuads = IntArray(newRows)
         fullRebuild = true
         lastCursorRow = -1
@@ -641,6 +673,9 @@ internal class TerminalRenderer(
          * Quads one cell can need: background, glyph, underline, strikeout and a
          * beam/underline/hollow cursor. A block cursor replaces the background.
          */
+        /** Upload the whole buffer when at least this share of rows is dirty. */
+        const val UPLOAD_WHOLE_RATIO = 3
+
         const val QUADS_PER_CELL = 5
         const val SLACK_QUADS_PER_ROW = 4
 

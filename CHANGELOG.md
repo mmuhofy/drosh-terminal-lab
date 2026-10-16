@@ -90,6 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The atlas rasterises printable ASCII once, from the GL thread, before the first
   frame: a burst used to pay one JNI call per new glyph plus a full atlas
   re-upload per frame, which is where the 120 ms frame came from.
+- The frame line carries **rows/frame** and the vertex building is measured apart
+  from the **uploading**: `build` scales with how many rows were rebuilt, so
+  without that number two device runs cannot be compared (runs 2 and 3 differed
+  by 5x for that reason). When at least a third of the rows are dirty the whole
+  buffer goes up in one call instead of one `glBufferSubData` per row.
 - The renderer no longer pads a row's slot with degenerate quads: a row records
   how many quads it produced and `draw` submits that prefix with one
   `glDrawArrays` per row. The first device build wrote (and paid for) roughly
