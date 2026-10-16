@@ -40,7 +40,7 @@ internal class AsciiAtlas(context: Context, fontSizeDp: Float = 12f) {
     val cellHeight: Int
     val bitmap: Bitmap
 
-    /** `index * 4 + {0,1,2,3}` = uLeft, vTop, uRight, vBottom (v is GL-oriented). */
+    /** `index * 4 + {0,1,2,3}` = uLeft, vTop, uRight, vBottom (v grows downwards). */
     private val uvRects = FloatArray(CELL_COUNT * UV_STRIDE)
 
     /** Center of the solid block, for background rects, underlines and cursors. */
@@ -101,14 +101,17 @@ internal class AsciiAtlas(context: Context, fontSizeDp: Float = 12f) {
             val at = index * UV_STRIDE
             uvRects[at] = column * cellWidth / width
             uvRects[at + 2] = (column + 1) * cellWidth / width
-            // OpenGL textures start at the bottom-left, so the bitmap's first row
-            // is the texture's last row: v = 1 is the top of the image.
-            uvRects[at + 1] = 1f - row * cellHeight / height
-            uvRects[at + 3] = 1f - (row + 1) * cellHeight / height
+            // `GLUtils.texImage2D` hands the bitmap's rows to `glTexImage2D` in
+            // bitmap order (top row first), and OpenGL maps the *first* row of
+            // that data to v = 0 — so v here grows downwards through the image
+            // and the smaller v is the glyph's top edge. Getting this backwards
+            // mirrored every glyph vertically on the device (2026-10-16).
+            uvRects[at + 1] = row * cellHeight / height
+            uvRects[at + 3] = (row + 1) * cellHeight / height
         }
 
         solidU = (blockLeft + cellWidth / 2f) / width
-        solidV = uvRects[SOLID_INDEX * UV_STRIDE + 1] - cellHeight / 2f / height
+        solidV = (blockTop + cellHeight / 2f) / height
     }
 
     fun indexOf(codepoint: Int): Int = when (codepoint) {

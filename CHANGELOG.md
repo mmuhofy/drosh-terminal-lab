@@ -72,6 +72,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   run page need an authenticated session, a release asset does not. CI still
   builds the artifact, and the release carries the APK's SHA-256.
 
+### Fixed
+
+- **Named colours were truncated to 8 bits** (`bridge/cell.rs`): `NamedColor`
+  runs to 268 (`DimForeground`), so `Background` (257) folded onto `Red` (1) and `Foreground`
+  (256) onto `Black` (0). On the device every default cell was painted
+  alacritty-red and the text went almost black — found by the Phase A device
+  acceptance test and confirmed from the screenshot's pixel values
+  (`#ac4342` background, `#181818` glyphs). The frozen-value test now pins every
+  named payload (0, 7, 15, 256..268) instead of only `Red`, which is why the old
+  test passed while the format was broken.
+- **The renderer sampled the glyph atlas upside down** (`AsciiAtlas.kt`): the V
+  coordinate was computed as if `GLUtils.texImage2D` flipped the bitmap's rows.
+  It does not — the first row of the data is v = 0 — so every glyph was mirrored
+  vertically on the device. Also found by the device test.
+
+### Removed
+
+- A device screenshot that was accidentally committed with a docs change
+  (`git add -A` swept it up): it is removed from the tree and
+  `Screenshot_*.{jpg,png}` is now ignored. It remains in the history of commit
+  `2cc331f` — rewriting a public `main` is not worth it for an attachment, but
+  the mistake is recorded here rather than hidden.
+
 ## [0.1.0] - 2026-10-16
 
 ### Added

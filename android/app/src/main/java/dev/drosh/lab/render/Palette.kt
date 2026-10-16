@@ -30,10 +30,11 @@ internal object Palette {
 
     /** Resolve a wire color (see `bridge/cell.rs`) to `0xRRGGBB`. */
     fun resolve(encoded: Int, defaultColor: Int): Int {
+        val payload = encoded and NativeCore.COLOR_VALUE_MASK
         return when (encoded ushr NativeCore.COLOR_TAG_SHIFT) {
-            NativeCore.COLOR_TAG_NAMED -> named(encoded and 0xff, defaultColor)
-            NativeCore.COLOR_TAG_INDEXED -> indexed(encoded and 0xff)
-            else -> encoded and NativeCore.COLOR_VALUE_MASK
+            NativeCore.COLOR_TAG_NAMED -> named(payload, defaultColor)
+            NativeCore.COLOR_TAG_INDEXED -> indexed(payload)
+            else -> payload
         }
     }
 
@@ -46,7 +47,8 @@ internal object Palette {
         index in 259..266 -> dim(ANSI[index - 259])
         index == 267 -> ANSI[15]
         index == 268 -> dim(DEFAULT_FOREGROUND)
-        index == 269 -> dim(DEFAULT_BACKGROUND)
+        // vte 0.15 ends the enum at `DimForeground` (268); anything else means
+        // the engine moved and the mapping has to be re-read from its source.
         else -> defaultColor
     }
 

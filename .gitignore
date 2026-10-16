@@ -29,3 +29,8 @@ android/app/src/main/jniLibs/
 *.log
 *.tmp
 Thumbs.db
+
+# Device screenshots land in the working tree when a test is reported; they are
+# attachments, not sources (AGENTS.md §11).
+Screenshot_*.jpg
+Screenshot_*.png

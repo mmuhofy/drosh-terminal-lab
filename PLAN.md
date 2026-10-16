@@ -148,6 +148,24 @@ is closed; the install floor will keep rising — known, accepted risk.
   `tty/unix.rs:206-211`; bionic does not), so a backspace erases a whole
   multibyte character in the guest. Implemented with a host test that reads the
   termios back through `stty -g`.
+- 2026-10-16: **First device run of the Phase A APK: two defects, both found by
+  the acceptance test (which is what it is for).**
+  1. *Wire format*: `encode_color` masked a named colour down to 8 bits. The
+     frozen-value test only asserted `NamedColor::Red` (= 1), which survives that
+     mask, so CI stayed green while `Background` (257) and `Foreground` (256)
+     silently became `Red` (1) and `Black` (0). On the device every default cell
+     was alacritty-red and text nearly black; the screenshot's pixels
+     (`#ac4342` / `#181818`) confirmed the code reading. The test now pins 0, 7,
+     15 and 256..268 — a frozen-value test must pin the *whole* range, not one
+     representative value.
+  2. *Renderer*: the atlas V coordinate assumed `GLUtils.texImage2D` flips the
+     bitmap's rows (it uploads them in bitmap order, so the bitmap's top row is
+     v = 0), which mirrored every glyph vertically. Recorded as a verified fact
+     in `AsciiAtlas.kt`: **with bitmap rows uploaded in order, v grows downwards
+     through the image.**
+  Both are fixed and covered (`cargo test` on the Rust side; the Atlas change is
+  device-verified by the retest). Device, Android version and kernel are
+  recorded in TODO.md once the retest passes.
 
 ## 4. Target architecture
 
