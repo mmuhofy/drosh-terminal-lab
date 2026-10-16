@@ -248,6 +248,7 @@ fn open_pair(config: &PtyConfig) -> io::Result<(File, File)> {
 
     let slave = open_slave(master_fd)?;
     set_winsize(master_fd, config)?;
+    set_utf8_input(master_fd);
     Ok((master, slave))
 }
 
@@ -325,6 +326,38 @@ fn set_winsize(master_fd: RawFd, config: &PtyConfig) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     Ok(())
+}
+
+/// Tell the line discipline that input is UTF-8.
+///
+/// With `IUTF8` the tty erases a whole multibyte character per backspace;
+/// without it the guest's readline leaves broken bytes behind when the user
+/// edits accented or CJK text. bionic does not set the flag, so we set it on the
+/// master, which shares its termios with the slave — the same thing alacritty's
+/// `tty/unix.rs` does for the desktop.
+///
+/// Failing here is not fatal: the terminal still works, only non-ASCII editing
+/// degrades, so the error is logged instead of propagated.
+fn set_utf8_input(master_fd: RawFd) {
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+    if unsafe { libc::tcgetattr(master_fd, termios.as_mut_ptr()) } != 0 {
+        log::warn!("drosh-core: tcgetattr failed: {}", io::Error::last_os_error());
+        return;
+    }
+
+    // SAFETY: `tcgetattr` returned success, so it initialised the struct.
+    let mut termios = unsafe { termios.assume_init() };
+    if termios.c_iflag & libc::IUTF8 != 0 {
+        return;
+    }
+
+    termios.c_iflag |= libc::IUTF8;
+    if unsafe { libc::tcsetattr(master_fd, libc::TCSANOW, &termios) } != 0 {
+        log::warn!(
+            "drosh-core: tcsetattr(IUTF8) failed: {}",
+            io::Error::last_os_error()
+        );
+    }
 }
 
 /// Install the SIGCHLD self-pipe; returns the read end and the handler id.

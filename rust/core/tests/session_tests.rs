@@ -120,6 +120,23 @@ fn resize_reaches_the_engine_and_the_pty() {
 }
 
 #[test]
+fn the_line_discipline_accepts_utf8_input() {
+    // bionic leaves IUTF8 unset, and without it readline erases single bytes of
+    // a multibyte character, so the PTY sets the flag on the master itself.
+    // `stty -g` prints the termios as hex fields, c_iflag first.
+    let session = Session::spawn(5, &shell_config("/bin/sh", &[])).expect("spawn a shell");
+
+    session
+        .write(b"printf 'IUTF8=%d\\n' $(( 0x$(stty -g | cut -d: -f1) & 0x4000 ))\n")
+        .expect("write to the pty");
+
+    let seen = wait_for(|| grid_text(&session).contains("IUTF8=16384").then_some(()));
+    assert!(seen.is_some(), "stty -g does not have IUTF8 set:\n{}", grid_text(&session));
+
+    session.shutdown();
+}
+
+#[test]
 fn the_manager_hands_out_and_closes_handles() {
     let handle = manager::spawn(&shell_config("/bin/sh", &[])).expect("spawn a shell");
     assert!(handle >= 1, "handles start at 1, got {handle}");
