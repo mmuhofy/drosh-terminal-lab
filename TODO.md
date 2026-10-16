@@ -376,6 +376,11 @@ session. (Details: PLAN.md §7-Phase A)
         same numbers under a *defined* workload (a burst that does not saturate
         the PTY, e.g. `cat` of a few MB) — the acceptance criterion needs a
         workload, not a stress test
+      - the installed build was still `64db7e2` on 2026-10-16 17:39 (its `/info`
+        emitted `cell=12,33` and its headers said `gl=unknown`, both fixed in
+        `ff6b5ef`), and no capture had been frozen yet — the endpoint itself was
+        healthy throughout (`GET /info` → 200), so the transport is proven even
+        where the app build was not yet current
 - [ ] frame p99 < 8 ms — the status line shows p50/p99 while a burst runs
       (`yes | head -20000`); the first numbers go here
 - [ ] no jank under full-screen output (the same line counts janky frames)
