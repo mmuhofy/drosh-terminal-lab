@@ -18,6 +18,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import dev.drosh.lab.bench.BenchUploader
 import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
@@ -80,7 +81,9 @@ class MainActivity : Activity() {
             renderer.cursorVisible = !renderer.cursorVisible
             surface.requestRender()
             drainEvents()
-            status.text = stats.summary()
+            if (!stats.isFrozen) {
+                status.text = stats.summary()
+            }
         },
     )
 
@@ -153,8 +156,10 @@ class MainActivity : Activity() {
             )
         }
 
-        // Phase B's acceptance numbers need to be readable on the device, not
-        // only in a profiler. Tapping the line resets the window.
+        // Phase B's acceptance numbers need to be readable on the device, and a
+        // number that keeps moving cannot be reported: tapping freezes the
+        // counters and writes one artefact — a `DroshLabBench` logcat line (and
+        // the same line appended to `files/bench.log`) — that can be sent as-is.
         status = TextView(this).apply {
             typeface = Typeface.MONOSPACE
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
@@ -163,10 +168,7 @@ class MainActivity : Activity() {
             setPadding(STATUS_PADDING, STATUS_PADDING, STATUS_PADDING, STATUS_PADDING)
             maxLines = 2
             text = stats.summary()
-            setOnClickListener {
-                stats.reset()
-                text = stats.summary()
-            }
+            setOnClickListener { toggleFreeze(this) }
         }
 
         // The keys row takes its own strip of the window, so the grid is told
@@ -244,6 +246,39 @@ class MainActivity : Activity() {
             renderer.lastGlError = null
             toast("renderer: $message")
         }
+    }
+
+    /**
+     * Freeze the counters (or resume them).
+     *
+     * Freezing is what makes a measurement sendable: the numbers stop moving, the
+     * line turns amber so the frozen state is visible, and the same values go to
+     * logcat under a tag of their own (`adb logcat -d -s DroshLabBench`) plus an
+     * append-only file in the app's directory, which `adb pull` can fetch.
+     */
+    private fun toggleFreeze(view: TextView) {
+        val frozen = stats.toggleFreeze()
+        view.setTextColor(if (frozen) STATUS_FROZEN_COLOR else STATUS_COLOR)
+        view.text = stats.summary()
+
+        if (!frozen) {
+            // Resuming starts a fresh window: mixing two runs would make the
+            // averages unreadable.
+            stats.reset()
+            return
+        }
+
+        val line = stats.logLine()
+        Log.i(BENCH_TAG, line)
+        try {
+            java.io.File(filesDir, BENCH_FILE).appendText("$line\n")
+        } catch (error: Throwable) {
+            Log.w(BENCH_TAG, "cannot append to $BENCH_FILE: ${error.message}")
+        }
+        // The collector runs on the device (loopback); sending is fire-and-forget
+        // and only happens on this explicit tap.
+        BenchUploader.send(line)
+        toast("frozen: $line")
     }
 
     /**
@@ -546,5 +581,12 @@ class MainActivity : Activity() {
         const val STATUS_COLOR = 0xff9a9a9a.toInt()
         const val STATUS_BACKGROUND = 0xff151515.toInt()
         const val STATUS_PADDING = 6
+
+        /** Amber while frozen: the numbers are an artefact, not a live reading. */
+        const val STATUS_FROZEN_COLOR = 0xfff4bf75.toInt()
+
+        /** Bench artefacts: one logcat tag and one append-only file. */
+        const val BENCH_TAG = "DroshLabBench"
+        const val BENCH_FILE = "bench.log"
     }
 }

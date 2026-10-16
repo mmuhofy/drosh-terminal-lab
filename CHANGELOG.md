@@ -53,10 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   cell buffer directly, skipping wide-character spacers and trimming trailing
   blanks; Paste wraps the clipboard in `ESC [ 200 ~ … 201 ~` when the program
   enabled mode 2004.
-- Frame timings (`bench/FrameStats.kt`) with a status line in the app: per-frame
-  CPU work as p50/p99 plus a jank counter (a gap of more than two refreshes since
-  the previous drawn frame), which is how Phase B's "frame p99 < 8 ms, no jank"
-  acceptance numbers can be read off a device.
+- Frame timings (`bench/FrameStats.kt`) with a status line in the app: frame work
+  split into pump/build/draw, monotone counters (work and interval buckets,
+  averages, jank count, worst frame) and **freeze on tap**, which turns a glance
+  into an artefact — one `DroshLabBench` logcat line, the same line appended to
+  `files/bench.log`, and posted to the device-side collector
+  (`bench/BenchUploader.kt`, loopback only).
+- `bench/`: the scenario script (`scenarios.sh`: steady, scroll-cat, scroll-ls,
+  runaway), the result collector for a machine with `adb` (`push-results.sh`) and
+  a README that records how a measurement is taken and why the device cannot push
+  to a build box. The app declares its first permission, `INTERNET`, because
+  Android requires it even for a loopback socket.
 - JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2). They
   are **not** wired into CI (user decision, 2026-10-16); run them with
   `gradle testDebugUnitTest` when the encoder changes. While they were briefly

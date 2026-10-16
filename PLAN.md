@@ -253,6 +253,29 @@ is closed; the install floor will keep rising — known, accepted risk.
   *workload* rather than a stress test: `yes` saturates the PTY and keeps the
   parser holding the lock, so both a burst (`cat` of a few MB) and the runaway
   case belong in the record — the numbers, and the attribution, are in TODO.md.
+- 2026-10-16: **Measurement process, and the transport question.** The rolling
+  240-frame window is gone: counters that only grow (work buckets
+  `<2/<4/<8/<16/<33/≥33 ms`, phase averages, jank count, worst frame), and
+  tapping the status line *freezes* them — amber, one `DroshLabBench` logcat
+  line, the same line appended to `files/bench.log` — so a number cannot change
+  while it is being written down. The workload is written down too
+  (`bench/scenarios.sh`: `steady`, `scroll-cat`, `scroll-ls`, `runaway`), and the
+  device run that produced 114 ms is corrected in TODO.md to
+  `yes | head -30000` (the earlier note said only `yes`).
+  On the transport: a device cannot push to a build box (its `127.0.0.1` is the
+  device), but the tester bridges a collector *on the device* out to this
+  environment. So the app posts a frozen line to `http://127.0.0.1:8080/bench` —
+  off the main thread, loopback constants only, and **only** on an explicit
+  freeze tap: never on a timer, never on output. This is the first permission the
+  prototype declares (`INTERNET`, which Android requires even for loopback), and
+  it is justified in the manifest and in `bench/README.md`.
+  Verified from the reviewing side: every path and a POST to that address answer
+  `200 WORKING`. **Open:** the collector does not serve back what it stores — a
+  marker POSTed from here does not appear at `/`, `/data`, `/last`, `/bench`,
+  `/results`, `/log` or `/lines` — so `adb logcat -s DroshLabBench` and
+  `bench/push-results.sh` stay the working channels until a read-back endpoint
+  exists. Rejected: an in-app upload to GitHub (a token inside a debug APK) or to
+  a public paste service (a terminal phoning home).
 ## 4. Target architecture
 
 ```
