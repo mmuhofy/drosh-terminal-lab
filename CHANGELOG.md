@@ -80,9 +80,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - The frame timing in the status line is split into **pump / build / draw**: the
-  first device numbers (`p50 114 ms`) could not be attributed, and the snapshot
-  call also waits for the grid lock while the parser is busy, so the phases have
-  to be visible separately.
+  first device numbers (`p50 114 ms`) could not be attributed, so the phases have
+  to be visible separately. A device run then settled it (`pump 1.5 ms`,
+  `build 13.3 ms`, `draw 0.7 ms`): the snapshot is cheap and the cost is the
+  Kotlin side.
+- Jank now means **work over two refreshes**, not the gap between drawn frames:
+  the gap counts idle time, and it reported 15 "janky" frames out of 16 while the
+  app was doing nothing.
+- The atlas rasterises printable ASCII once, from the GL thread, before the first
+  frame: a burst used to pay one JNI call per new glyph plus a full atlas
+  re-upload per frame, which is where the 120 ms frame came from.
 - The renderer no longer pads a row's slot with degenerate quads: a row records
   how many quads it produced and `draw` submits that prefix with one
   `glDrawArrays` per row. The first device build wrote (and paid for) roughly

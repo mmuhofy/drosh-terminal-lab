@@ -339,6 +339,9 @@ session. (Details: PLAN.md §7-Phase A)
       exist (the trade the tester accepted).
 - [ ] The acceptance numbers themselves (a device run per scenario) — the numbers
       go into the device-run entry above.
+- [ ] Atlas upload is still the whole texture when a glyph is added (1 MB); with
+      ASCII warmed up that is once per app run plus the rare codepoint, but a
+      `glTexSubImage2D` of the changed rows would remove it entirely.
 
 ### Acceptance
 - [ ] **Device run 1 (2026-10-16, commit `64db7e2`, Android 15, kernel
@@ -381,8 +384,21 @@ session. (Details: PLAN.md §7-Phase A)
         `ff6b5ef`), and no capture had been frozen yet — the endpoint itself was
         healthy throughout (`GET /info` → 200), so the transport is proven even
         where the app build was not yet current
-- [ ] frame p99 < 8 ms — the status line shows p50/p99 while a burst runs
-      (`yes | head -20000`); the first numbers go here
+- [ ] **Device run 2 (2026-10-16 17:59, commit `ff6b5ef`):** the fixed build is
+      confirmed on the device — `cell=12.33` with a **dot** and the log header
+      carries the real `gl=OpenGL ES 3.2 …` (both defects fixed). First captured
+      line (unlabelled burst, 16 drawn frames):
+      `frames=16 slow8=3 (18.75%) max=120.6 pump=1.5 build=13.3 draw=0.7 jank=15`
+      **Attribution: pump 1.5 ms, build 13.3 ms, draw 0.7 ms.** The lock-waiting
+      hypothesis is refuted — the snapshot is cheap. The cost is ours and it is
+      the Kotlin side: vertex building, glyph rasterisation misses during a burst
+      (one JNI call each) and the 1 MB atlas re-upload per frame that adds glyphs.
+      Follow-up: pre-rasterise printable ASCII into the atlas at startup, and
+      define jank as *work* over two refreshes (the interval counts idle time and
+      produced 15 "janky" frames out of 16 while the app was idle).
+- [ ] frame p99 < 8 ms — needs labelled scenario runs: the captures are
+      chronological, so running `bench/scenarios.sh` in order and freezing once
+      per scenario maps four lines onto four names
 - [ ] no jank under full-screen output (the same line counts janky frames)
 - [ ] crisp pinch zoom; select + copy + paste working ← zoom is not built yet
       (see the input section); copy/paste are

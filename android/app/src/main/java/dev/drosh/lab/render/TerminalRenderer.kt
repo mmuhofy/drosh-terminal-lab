@@ -98,6 +98,10 @@ internal class TerminalRenderer(
         if (program == 0) {
             return
         }
+        // Rasterise ASCII before the first frame: a burst should not pay for
+        // glyphs one JNI call at a time (device run 2).
+        atlas.warmUp(fontPx, false)
+
         projectionUniform = GLES20.glGetUniformLocation(program, "uProjection")
         atlasUniform = GLES20.glGetUniformLocation(program, "uAtlas")
         texture = buildTexture()

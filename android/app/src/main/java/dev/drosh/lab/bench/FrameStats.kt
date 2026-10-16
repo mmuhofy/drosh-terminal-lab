@@ -61,13 +61,19 @@ internal class FrameStats {
         maxWork = maxOf(maxWork, total)
         work[bucket(total)] += 1
 
+        // Jank is *work*, not the gap between frames: the gap also contains idle
+        // time, keyboard animations and everything else that has nothing to do
+        // with rendering. A frame that took longer than two refreshes is a frame
+        // the user waited for.
+        if (total > JANK_MILLIS) {
+            longs += 1
+        }
+
+        // The gap is still recorded, but only as information.
         if (lastFrameNanos != 0L) {
             val gap = millis(lastFrameNanos, startNanos)
             maxInterval = maxOf(maxInterval, gap)
             interval[bucket(gap)] += 1
-            if (gap > JANK_MILLIS) {
-                longs += 1
-            }
         }
         lastFrameNanos = startNanos
     }
