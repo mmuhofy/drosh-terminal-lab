@@ -312,7 +312,7 @@ internal class TerminalRenderer(
         }
         vertices.flip()
 
-        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, dummyVbo)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, buffers[0])
         GLES20.glBufferData(
             GLES20.GL_ARRAY_BUFFER,
             QUAD_VERTICES * 2 * FLOAT_BYTES,
