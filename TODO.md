@@ -266,17 +266,25 @@ session. (Details: PLAN.md §7-Phase A)
       nothing. The engine gives a column range per damaged line, but the whole
       row is rebuilt — that keeps the slot arithmetic honest, and a row is a few
       hundred quads.
-- [ ] **Vertex path rewrite** (design and sources: PLAN.md decision history,
+- [x] **Vertex path rewritten** (design and sources: PLAN.md decision history,
       2026-10-16 — alacritty's `text/gles2.rs` + `res/gles2/*`, Ghostty's
       `cell_text.v.glsl` + `generic.zig`):
-      - [ ] one ~20-byte record per cell (atlas rect, bearings, packed fg/bg,
-            flags) instead of up to 5 quads × 6 vertices × 8 floats
-      - [ ] quad built in the vertex shader from `gl_VertexID`, drawn instanced
-            (`glVertexAttribDivisor`), two passes (backgrounds, then glyphs)
-      - [ ] keep the damage-limited row slots and the whole-buffer upload when
-            most rows are dirty
-      - [ ] keep the frame counters, so the rewrite is judged by a device
-            capture rather than by the argument that it must be faster
+      - [x] one 4-byte background record per cell (no position: the shader derives
+            the cell from `gl_InstanceID`) and a ~24-byte foreground record per
+            drawn thing (atlas rect, in-cell offset, grid position, packed `u8x4`
+            colour, flags) in `render/CellRecords.kt`
+      - [x] the quad is built in the vertex shader from `gl_VertexID`, drawn
+            instanced (4 template vertices, `glVertexAttribDivisor`), two passes:
+            backgrounds then foregrounds
+      - [x] both streams are re-uploaded per frame with `GL_STREAM_DRAW`
+            (orphaning); the damage-limited row slots are gone — at ~28 bytes per
+            cell a full rebuild is cheaper than the bookkeeping that avoided it,
+            which is also what Ghostty does
+      - [ ] **device verification pending**: this is a rewrite of the render path;
+            the next device capture (one tap) is what decides whether it worked,
+            and `rec/f` in the line now says how much was drawn
+- [ ] If the rewrite is not enough: move the record building to Rust (the
+      Plan-B discussion, now with data instead of an argument)
 - [ ] `renderer/atlas.kt`: size buckets (1x/1.5x/2x/3x) — the atlas is keyed by
       pixel size already, so buckets are about picking the size per zoom level
 - [ ] `renderer/shader.kt` / `quads.kt`: GLES3 instancing (the buffer is already

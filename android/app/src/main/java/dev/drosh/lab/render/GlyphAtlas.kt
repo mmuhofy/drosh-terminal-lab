@@ -94,6 +94,12 @@ internal class GlyphAtlas(val size: Int = ATLAS_SIZE) {
     val solidU: Float
     val solidV: Float
 
+    /** The same block in texels, which is what a foreground record carries. */
+    var solidX = 0
+        private set
+    var solidY = 0
+        private set
+
     init {
         val block = reserve(SOLID, SOLID)
         if (block == null) {
@@ -105,6 +111,8 @@ internal class GlyphAtlas(val size: Int = ATLAS_SIZE) {
             val x = unpackX(block)
             val y = unpackY(block)
             pixels[y * size + x] = 255.toByte()
+            solidX = x
+            solidY = y
             solidU = (x + 0.5f) / size
             solidV = (y + 0.5f) / size
         }
