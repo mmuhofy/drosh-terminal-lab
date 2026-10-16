@@ -1,20 +1,24 @@
 package dev.drosh.lab
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Typeface
 import android.opengl.GLSurfaceView
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.GestureDetector
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
+import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.input.AndroidKeys
@@ -42,6 +46,10 @@ class MainActivity : Activity() {
     private lateinit var surface: GLSurfaceView
     private lateinit var input: TerminalInputView
     private lateinit var keys: ExtraKeysView
+    private lateinit var status: TextView
+
+    /** Frame timings; the status row shows them and a tap resets them. */
+    private val stats = FrameStats()
 
     /** Cell geometry from the bundled font, filled in by [loadFont]. */
     private lateinit var metrics: CellMetrics
@@ -72,6 +80,7 @@ class MainActivity : Activity() {
             renderer.cursorVisible = !renderer.cursorVisible
             surface.requestRender()
             drainEvents()
+            status.text = stats.summary()
         },
     )
 
@@ -98,7 +107,7 @@ class MainActivity : Activity() {
             cwd = filesDir.absolutePath,
         )
 
-        renderer = TerminalRenderer(session, atlas, metrics, fontPx, selection)
+        renderer = TerminalRenderer(session, atlas, metrics, fontPx, selection, stats)
         renderer.onGridChanged = { columns, rows ->
             // The renderer reports from the GL thread; the session is only ever
             // touched from the UI thread.
@@ -144,6 +153,21 @@ class MainActivity : Activity() {
             )
         }
 
+        // Phase B's acceptance numbers need to be readable on the device, not
+        // only in a profiler. Tapping the line resets the window.
+        status = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            setTextColor(STATUS_COLOR)
+            setBackgroundColor(STATUS_BACKGROUND)
+            setPadding(STATUS_PADDING, STATUS_PADDING, STATUS_PADDING, STATUS_PADDING)
+            text = stats.summary()
+            setOnClickListener {
+                stats.reset()
+                text = stats.summary()
+            }
+        }
+
         // The keys row takes its own strip of the window, so the grid is told
         // about a smaller surface instead of drawing under the buttons.
         val column = LinearLayout(this)
@@ -154,6 +178,13 @@ class MainActivity : Activity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 0,
                 1f,
+            ),
+        )
+        column.addView(
+            status,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
             ),
         )
         column.addView(
@@ -186,6 +217,8 @@ class MainActivity : Activity() {
         surface.onResume()
         frameLoop.poll = { session.pollWakeup() }
         frameLoop.start()
+        // Numbers from this session only: a resume is a fresh start.
+        stats.reset()
     }
 
     override fun onPause() {
@@ -507,5 +540,10 @@ class MainActivity : Activity() {
 
         /** Pastes are capped: a phone clipboard is not a file transfer. */
         const val PASTE_LIMIT = 65_536
+
+        /** The frame-stats line: readable, quiet, and its own tap target. */
+        const val STATUS_COLOR = 0xff9a9a9a.toInt()
+        const val STATUS_BACKGROUND = 0xff151515.toInt()
+        const val STATUS_PADDING = 6
     }
 }
