@@ -60,7 +60,8 @@ session. (Details: PLAN.md §7-Phase A)
 - [x] `core/src/session/manager.rs`: handle table (ids from 1, max 8)
 - [x] `core/src/session/pty_factory.rs`: LocalPty — posix_openpt +
       TIOCGPTPEER + login-tty child (setsid/TIOCSCTTY/dup2), slave-stdio OEM
-      fallback, SIGCHLD self-pipe, EventedPty/OnResize for the engine loop
+      fallback, SIGCHLD self-pipe, EventedPty/OnResize for the engine loop,
+      `IUTF8` on the master (backspace erases a whole multibyte character)
 - [x] `core/src/session/mod.rs`: Session lifecycle (spawn/write/resize/scroll/
       shutdown), lock order term → damage_scratch → damage
 - [x] `core/src/ffi/session.rs`: JNI functions
@@ -111,7 +112,7 @@ session. (Details: PLAN.md §7-Phase A)
 
 ### Tests
 - [x] `tests/session_tests.rs`: host `/bin/sh` echo + `stty size` (PTY winsize)
-      + child exit code + manager handles
+      + child exit code + manager handles + `IUTF8` set on the line discipline
 - [x] `tests/snapshot_tests.rs`: grid → buffer correctness, damage boundaries,
       resize ⇒ full redraw, undersized buffers rejected
 - [x] **CI green (2026-10-16)**, run
@@ -122,6 +123,11 @@ session. (Details: PLAN.md §7-Phase A)
       with a real PTY). The Android cross-check compiling *and* passing clippy
       is the important half: the engine, our PTY code and the JNI layer all
       build for `aarch64-linux-android`.
+- [x] Re-verified after the `IUTF8` change (2026-10-16), run
+      <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38873799259>:
+      **28 tests, 0 failed** (16 unit, 6 snapshot, 6 session with a real PTY).
+      The cross-target clippy pass is what proves `libc::IUTF8` and the bionic
+      `termios` layout are right for Android, not just for the host.
 - [ ] Still unverified: anything that needs a device. The JNI binding shape is
       written (`object NativeCore` + `external fun`, the pattern Termi runs on
       device; the Rust side ignores the receiver), and CI proves the `.so` is
@@ -170,7 +176,7 @@ session. (Details: PLAN.md §7-Phase A)
       `adb logcat -s DroshLab` matters: the app logs the core version, the
       grid size, `GL_VERSION` and every failure, and shows a toast for each
       failure.
-- [x] `cargo test` green in CI (27 tests, run 38815576100)
+- [x] `cargo test` green in CI (28 tests, run 38873799259)
 - [x] `assembleDebug` green in CI and the APK carries `libdrosh_core.so`
       (run 38870912218)
 - [x] Gate 1 passed in CI
