@@ -79,11 +79,24 @@ jobs:
             "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
           echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          # The runner image ships its own NDK and sets ANDROID_NDK_ROOT to it;
+          # cargo-ndk aborts when that disagrees with ANDROID_NDK_HOME.
           echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$SDK_DIR/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # The cargo workspace lives in rust/, not at the repo root.
+          workspaces: rust
+      - name: Add the Android target
+        run: rustup target add aarch64-linux-android
       - name: Build the Rust core for arm64-v8a
         # The APK only works with libdrosh_core.so inside it; cargo-ndk wires
         # the NDK toolchain into the cargo build. The .so is never committed.
+        env:
+          # Step-level, so the image's own values cannot win.
+          ANDROID_NDK_HOME: ${{ runner.temp }}/android-sdk/ndk/28.2.13676358
+          ANDROID_NDK_ROOT: ${{ runner.temp }}/android-sdk/ndk/28.2.13676358
         run: |
           set -euo pipefail
           cargo install cargo-ndk --locked
