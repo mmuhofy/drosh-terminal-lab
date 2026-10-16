@@ -30,10 +30,11 @@ internal object Palette {
 
     /** Resolve a wire color (see `bridge/cell.rs`) to `0xRRGGBB`. */
     fun resolve(encoded: Int, defaultColor: Int): Int {
+        val payload = encoded and NativeCore.COLOR_VALUE_MASK
         return when (encoded ushr NativeCore.COLOR_TAG_SHIFT) {
-            NativeCore.COLOR_TAG_NAMED -> named(encoded and 0xff, defaultColor)
-            NativeCore.COLOR_TAG_INDEXED -> indexed(encoded and 0xff)
-            else -> encoded and NativeCore.COLOR_VALUE_MASK
+            NativeCore.COLOR_TAG_NAMED -> named(payload, defaultColor)
+            NativeCore.COLOR_TAG_INDEXED -> indexed(payload)
+            else -> payload
         }
     }
 

@@ -165,6 +165,12 @@ session. (Details: PLAN.md §7-Phase A)
 ### Acceptance
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
       renders from the snapshot — device + kernel recorded here.
+      **First device run (2026-10-16) failed, and that is why it exists**: the
+      grid did receive the engine's content, but every default cell was painted
+      alacritty-red and every glyph was mirrored vertically. Both defects are
+      fixed (see `CHANGELOG.md` `[Unreleased] → Fixed`); a retest with the
+      rebuilt APK is pending, and the device model, Android version and
+      `uname -a` go in this bullet.
       The APK is attached to the `phase-a-device-test` pre-release
       (<https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test>);
       the release body names the commit, the CI run and the APK's SHA-256, so
