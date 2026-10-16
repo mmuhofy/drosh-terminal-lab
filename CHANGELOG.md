@@ -40,6 +40,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   from `nativeFontMetrics`, so the grid, baselines and underline position are
   all the bundled font's, and bold uses the real bold face instead of a second
   pass. The Android-baked `AsciiAtlas` is gone.
+- The input layer (`input/Encoder.kt`, `input/AndroidKeys.kt`,
+  `input/ExtraKeysView.kt`): xterm key sequences read out of alacritty's own
+  sources — APP_CURSOR (`ESC O A`) versus normal (`ESC [ A`) cursors, the
+  `~`-terminated keys, F1–F4 as SS3, Shift+Tab, Alt as an ESC prefix or a
+  modifier parameter (`CSI 1;3D`), the C0 mapping for Ctrl+letter — plus the
+  extra-keys row (sticky Ctrl, Esc, Tab, arrows) and Enter as CR rather than LF.
+- JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2). They
+  are **not** wired into CI (user decision, 2026-10-16); run them with
+  `gradle testDebugUnitTest` when the encoder changes. While they were briefly
+  part of CI they caught a real bug on the first run: Shift+Tab sent
+  `ESC [ SPACE Z`, a stray space in a Kotlin string template.
+
+### Changed
+
+- The layout is a vertical column: the GL surface takes everything above the
+  extra-keys row, so the grid is told about a smaller surface instead of drawing
+  underneath the buttons.
 
 ## [0.2.0] - 2026-10-16
 

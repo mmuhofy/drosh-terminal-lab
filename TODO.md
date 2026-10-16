@@ -270,9 +270,25 @@ session. (Details: PLAN.md §7-Phase A)
       italic face is bundled)
 
 ### Kotlin input
-- [ ] `input/encoder.kt`: xterm conventions — Ctrl/Alt/Shift, arrows,
-      Home/End, PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS
-- [ ] `input/keys.kt`: extra-keys row (Ctrl+C/D/Z, Tab, arrows)
+- [x] `input/encoder.kt`: xterm conventions — Ctrl/Alt/Shift, arrows,
+      Home/End, PgUp/PgDn, F1–F12, Esc, Tab/Shift-Tab, DEL/BS. The sequences
+      were read out of alacritty's sources (`config/bindings.rs` for the
+      APP_CURSOR, Shift+Tab and Alt forms; `input/keyboard.rs` for the
+      `~`-terminated keys and the named control characters) and from the xterm
+      modifier convention.
+- [x] `input/keys.kt` → `ExtraKeysView`: Ctrl (sticky), Esc, Tab and the four
+      arrows. Enter is CR (0x0d) now, not LF: the tty's ICRNL turns it into a
+      newline for the shell and a raw-mode program gets what it expects.
+- [ ] `android/app/src/test/java/.../EncoderTest.kt` pins every sequence, but
+      **CI does not run it** (user decision, 2026-10-16: no unit-test step in
+      CI). Run it by hand with `gradle testDebugUnitTest` when the encoder
+      changes — while it *was* wired into CI it caught a real bug immediately
+      (Shift+Tab sent `ESC [ SPACE Z` because of a stray space in a string
+      template). Recorded here so the gap is deliberate, not forgotten.
+- [ ] Ctrl+C/D/Z: reachable as Ctrl plus `c`/`d`/`z` from the soft keyboard and
+      from a hardware keyboard (the sticky Ctrl turns the first committed
+      character into its C0 control code). A dedicated row button is not there
+      yet — a device test decides whether it is worth the space.
 - [ ] `input/paste.kt`: bracketed paste (mode 2004)
 - [ ] `input/gestures.kt`: tap, double-tap (word), long-press (selection),
       drag extend, pinch zoom (row anchoring), momentum scroll
