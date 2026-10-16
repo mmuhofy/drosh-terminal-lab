@@ -330,18 +330,30 @@ session. (Details: PLAN.md §7-Phase A)
       `http://127.0.0.1:8080/bench` (loopback constants only, off the main
       thread, only on an explicit freeze tap). This is the app's first declared
       permission (`INTERNET`, required by Android even for loopback).
-- [ ] Transport, reading half: the tester's loopback collector answers
-      `200 WORKING` to everything but does **not** serve back what it stores (a
-      marker POSTed from the build box appears at none of `/`, `/data`, `/last`,
-      `/bench`, `/results`, `/log`). Until a read-back endpoint exists, the
-      numbers arrive by `adb logcat -d -s DroshLabBench` or
-      `bench/push-results.sh --push`.
+- [x] Transport, reading half: **the app hosts the endpoint** and the reviewer
+      pulls (`GET /info`, `GET /bench.log`, fixed port 8080, every interface,
+      addresses logged). Verified end to end on 2026-10-16: a fetch from the build
+      box returned the device line above without the tester pasting anything.
+      `bench/fetch-results.sh` is the script; `adb logcat -d -s DroshLabBench`
+      stays as the offline fallback. The app must be running for the endpoint to
+      exist (the trade the tester accepted).
 - [ ] The acceptance numbers themselves (a device run per scenario) — the numbers
       go into the device-run entry above.
 
 ### Acceptance
 - [ ] **Device run 1 (2026-10-16, commit `64db7e2`, Android 15, kernel
       `6.6.30-android15-8-g6b55ce738535-4k`, `GL ES 3.2`):**
+      - device (from the app's own endpoint, `/info`): model `23106RN0DA`,
+        density 1.7125
+      - the IME shrinking the grid is **observed**, not assumed: `/info` reports
+        `grid=58x30` while the keyboard is up, and the log header written at
+        startup has `grid=58x55`
+
+      Two defects this run found, both from pulling `/info` instead of reading a
+      screenshot: `String.format` used the device locale, so `cell=12,33` came
+      out with a **comma decimal** (unparseable), and the log header was written
+      in `onCreate` before the GL surface existed, so it said `gl=unknown`. Both
+      fixed (`Locale.ROOT`; the header is written once the GL version is known).
       - log: `font: cell 12.33x27.126px at 20.55px (density 1.7125, ascent
         20.961)`, `core 0.1.0 session 1: 58x55 cells of 12x27px`,
         `GL version: OpenGL ES 3.2 v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`

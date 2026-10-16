@@ -276,6 +276,18 @@ is closed; the install floor will keep rising — known, accepted risk.
   `bench/push-results.sh` stay the working channels until a read-back endpoint
   exists. Rejected: an in-app upload to GitHub (a token inside a debug APK) or to
   a public paste service (a terminal phoning home).
+- 2026-10-16: **The endpoint moved *into* the app** (user decision). Rather than
+  posting to a collector, the lab build hosts one: `bench/BenchServer.kt` listens
+  on a fixed port (8080, logged with the addresses to try) and answers three
+  read-only GETs — `/`, `/info` and `/bench.log` (one header line per app start,
+  then one line per frozen capture; `bench/fetch-results.sh` pulls them). The
+  consequence the user accepted explicitly: **the app has to be running** for the
+  numbers to exist. The server binds **every interface**, so whichever address the
+  tester's bridge can reach answers (their Wi-Fi address or loopback); that is a
+  lab-build trade recorded here — a shipped build binds loopback and leaves the
+  bridging to `adb forward`. The app never dials out, and the endpoint serves
+  bench numbers and device facts, never terminal content, which is also why
+  `INTERNET` is the only permission the prototype declares.
 ## 4. Target architecture
 
 ```

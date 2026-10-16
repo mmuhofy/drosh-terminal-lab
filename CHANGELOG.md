@@ -40,6 +40,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   from `nativeFontMetrics`, so the grid, baselines and underline position are
   all the bundled font's, and bold uses the real bold face instead of a second
   pass. The Android-baked `AsciiAtlas` is gone.
+- The app hosts the bench endpoint itself (`bench/BenchServer.kt`, fixed port
+  8080): read-only GETs for `/` (index), `/info` (device, kernel, core version,
+  grid, cell metrics, GL, font) and `/bench.log` (one header line per app start,
+  then one line per frozen capture), with `bench/fetch-results.sh` to pull them.
+  Nothing is uploaded from the device; the app never dials out. The lab build
+  binds every interface so a bridged address answers, and `INTERNET` exists for
+  that listening socket alone.
 - The input layer (`input/Encoder.kt`, `input/AndroidKeys.kt`,
   `input/ExtraKeysView.kt`): xterm key sequences read out of alacritty's own
   sources — APP_CURSOR (`ESC O A`) versus normal (`ESC [ A`) cursors, the

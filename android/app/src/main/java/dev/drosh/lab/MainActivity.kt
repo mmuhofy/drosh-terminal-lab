@@ -5,6 +5,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Typeface
 import android.opengl.GLSurfaceView
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.util.TypedValue
@@ -18,7 +19,7 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
-import dev.drosh.lab.bench.BenchUploader
+import dev.drosh.lab.bench.BenchServer
 import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
@@ -49,8 +50,18 @@ class MainActivity : Activity() {
     private lateinit var keys: ExtraKeysView
     private lateinit var status: TextView
 
-    /** Frame timings; the status row shows them and a tap resets them. */
+    /** Frame timings; the status row shows them and a tap freezes them. */
     private val stats = FrameStats()
+
+    /**
+     * The bench endpoint the app hosts on loopback, so the numbers can be pulled
+     * instead of retyped (`bench/README.md`). Started once the font metrics are
+     * known, stopped with the activity.
+     */
+    private var benchServer: BenchServer? = null
+
+    /** The log's header is written once, when the GL version is known. */
+    private var benchHeaderWritten = false
 
     /** Cell geometry from the bundled font, filled in by [loadFont]. */
     private lateinit var metrics: CellMetrics
@@ -84,6 +95,7 @@ class MainActivity : Activity() {
             if (!stats.isFrozen) {
                 status.text = stats.summary()
             }
+            ensureBenchHeader()
         },
     )
 
@@ -208,6 +220,11 @@ class MainActivity : Activity() {
         surface.setOnTouchListener(gestureListener())
 
         startSession()
+
+        // The endpoint is the app's own: a reviewer pulls from it (through the
+        // bridge the device tester sets up), and the app never dials out.
+        benchServer = BenchServer(java.io.File(filesDir, BENCH_FILE)) { benchInfoLine() }
+        benchServer?.start()
     }
 
     override fun onResume() {
@@ -234,6 +251,7 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         frameLoop.stop()
+        benchServer?.stop()
         if (::session.isInitialized) {
             session.close()
         }
@@ -249,12 +267,56 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Device, build, font and grid facts as one line: what a device run has to
+     * record, and what `GET /info` answers.
+     */
+    private fun benchInfoLine(): String = buildString {
+        // Locale.ROOT: on a comma-decimal device (Turkish, German…) `%.2f` would
+        // emit `12,33`, and the numbers have to be machine-readable.
+        fun number(value: Float, pattern: String) =
+            java.lang.String.format(java.util.Locale.ROOT, pattern, value)
+
+        append("device=").append(Build.MODEL)
+        append(" android=").append(Build.VERSION.RELEASE)
+        append(" kernel=").append(System.getProperty("os.version") ?: "?")
+        append(" core=").append(if (::session.isInitialized) session.coreVersion else "?")
+        append(" grid=").append(session.columns).append('x').append(session.rows)
+        append(" cell=").append(number(metrics.width, "%.2f")).append('x')
+            .append(number(metrics.height, "%.2f"))
+        append(" ascent=").append(number(metrics.ascent, "%.2f"))
+        append(" density=").append(number(resources.displayMetrics.density, "%.4f"))
+        append(" gl=").append(if (::renderer.isInitialized) renderer.glVersion else "?")
+        append(" font=").append(FONT_NAME)
+    }
+
+    /**
+     * The header names the build a pulled log came from, so it is written once the
+     * GL version is known — not in `onCreate`, where the surface does not exist yet
+     * and the line said `gl=unknown`.
+     *
+     * Called from the frame loop's blink and before the first capture, whichever
+     * comes first; an app that never draws a frame has nothing to measure anyway.
+     */
+    private fun ensureBenchHeader() {
+        if (benchHeaderWritten || !::renderer.isInitialized || renderer.glVersion == "unknown") {
+            return
+        }
+        benchHeaderWritten = true
+        val header = "# %s · %s%n".format(java.util.Date().toString(), benchInfoLine())
+        try {
+            java.io.File(filesDir, BENCH_FILE).appendText(header)
+        } catch (error: Throwable) {
+            Log.w(BENCH_TAG, "cannot write the header to $BENCH_FILE: ${error.message}")
+        }
+    }
+
+    /**
      * Freeze the counters (or resume them).
      *
      * Freezing is what makes a measurement sendable: the numbers stop moving, the
-     * line turns amber so the frozen state is visible, and the same values go to
-     * logcat under a tag of their own (`adb logcat -d -s DroshLabBench`) plus an
-     * append-only file in the app's directory, which `adb pull` can fetch.
+     * line turns amber so the frozen state is visible, and the same line goes to
+     * logcat (`adb logcat -d -s DroshLabBench`) and to `files/bench.log`, which
+     * the app's own endpoint serves (`GET /bench.log`).
      */
     private fun toggleFreeze(view: TextView) {
         val frozen = stats.toggleFreeze()
@@ -268,6 +330,8 @@ class MainActivity : Activity() {
             return
         }
 
+        ensureBenchHeader()
+
         val line = stats.logLine()
         Log.i(BENCH_TAG, line)
         try {
@@ -275,9 +339,6 @@ class MainActivity : Activity() {
         } catch (error: Throwable) {
             Log.w(BENCH_TAG, "cannot append to $BENCH_FILE: ${error.message}")
         }
-        // The collector runs on the device (loopback); sending is fire-and-forget
-        // and only happens on this explicit tap.
-        BenchUploader.send(line)
         toast("frozen: $line")
     }
 
@@ -566,6 +627,9 @@ class MainActivity : Activity() {
 
         /** Font size in dp; the cell size and the whole grid follow from it. */
         const val FONT_SIZE_DP = 12f
+
+        /** Human-readable font identity for the bench header. */
+        const val FONT_NAME = "JetBrains Mono NL 2.304"
 
         /** The faces bundled in the APK (Phase B: one font, everywhere identical). */
         const val REGULAR_FONT = "fonts/JetBrainsMonoNL-Regular.ttf"
