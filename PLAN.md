@@ -175,6 +175,25 @@ is closed; the install floor will keep rising — known, accepted risk.
   in CI, and §8 item 5 (GL ES 3.0 on target devices) is verified with it.
   Phase A is closed; what follows is quality (Phase B) and the guest runtime
   (Phase C).
+- 2026-10-16: Phase B started, first decision: **the font travels inside the
+  APK** (user decision). JetBrains Mono NL 2.304, Regular + Bold + `OFL.txt` in
+  `android/app/src/main/assets/fonts/`, with the release URL and every SHA-256 in
+  that directory's README. Rationale: cell metrics, atlas buckets and the future
+  selection geometry all derive from the font, so a cell has to be the same size
+  on every device — and `/system/fonts` differs per OEM, both in what a
+  monospace face is called and in its metrics, with devices that lack one
+  entirely. The **`NL` variant** (no ligature lookups) is chosen because D6 has
+  no ligature support: a cell must show the character the guest wrote; the shaper
+  also disables `liga`/`clig`/`calt`/`rlig`, so a later font swap cannot start
+  ligating silently. Italic is synthesised by skew rather than shipped, and the
+  release's variable font is deliberately unused (D12: no configuration).
+  Second decision, from implementing Gate 2: the renderer's input stays **alpha
+  masks only** — swash is asked for `Source::Outline`, and the tests assert one
+  byte per pixel (`coverage.len() == width * height`), so the Kotlin atlas is a
+  single channel the shader tints. Colour glyphs (emoji) need an RGBA atlas pass
+  and stay a recorded decision (§8 item 3). Cell width comes from a *shaped*
+  advance, not from an average, so the metric the grid is laid out with is the
+  same number the glyphs are positioned with.
 ## 4. Target architecture
 
 ```
@@ -340,7 +359,12 @@ them (AGENTS.md rule 2):
    sidesteps it by not using `alacritty_terminal::tty` (D8): `pty_factory.rs`
    spawns the child itself.
 3. swash compiles for Android and produces color-emoji (CBDT/COLR) bitmaps —
-   Phase B Gate 2; otherwise the emoji overlay path
+   Phase B Gate 2: **the compile half is verified** (`Gate 2 — Rust font stack`
+   job cross-checks the crate for `aarch64-linux-android`, and the font tests
+   produce real alpha masks from the bundled font). The colour half is a
+   recorded decision rather than an implementation: swash can rasterise
+   CBDT/COLR (`Source::ColorBitmap`), the renderer needs an RGBA atlas pass
+   first — see TODO.md, Phase B Gate 2.
 4. chroot-ng probe result + file-backed mode — Phase C Gate 3
 5. GL ES 3.0 available on target devices (fallback: GLES2 path) — **verified
    2026-10-16 on an Android 15 device**: `OpenGL ES 3.2

@@ -4,12 +4,14 @@
 //! - [`ffi`]: the JNI boundary (session lifecycle, snapshot, events).
 //! - [`session`]: [`alacritty_terminal::Term`] + event loop + PTY.
 //! - [`bridge`]: Term → flat cell buffer + damage list, and the event queue.
+//! - [`font`]: shaping (`rustybuzz`) and rasterisation (`swash`) — Phase B.
 //! - [`util`]: logging and other small shared helpers.
 //!
 //! See `TODO.md` (Phase A) and `PLAN.md` (decisions D1–D13).
 
 pub mod bridge;
 pub mod ffi;
+pub mod font;
 pub mod session;
 pub mod util;
 
