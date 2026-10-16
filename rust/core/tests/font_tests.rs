@@ -14,9 +14,7 @@ const REGULAR: &str = "JetBrainsMonoNL-Regular.ttf";
 const BOLD: &str = "JetBrainsMonoNL-Bold.ttf";
 
 fn asset_path(name: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../android/app/src/main/assets/fonts")
-        .join(name)
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../android/app/src/main/assets/fonts").join(name)
 }
 
 fn read_asset(name: &str) -> Vec<u8> {

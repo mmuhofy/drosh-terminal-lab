@@ -119,10 +119,7 @@ impl FontStack {
 
     /// Bytes of the face to use for `weight` (bold falls back to regular).
     pub fn bytes(&self, weight: Weight) -> &[u8] {
-        match weight {
-            Weight::Bold => self.bold.as_deref().unwrap_or(&self.regular),
-            Weight::Regular => &self.regular,
-        }
+        face(&self.regular, self.bold.as_deref(), weight)
     }
 
     /// Cell metrics at `px`, from the regular face.
@@ -139,7 +136,12 @@ impl FontStack {
 
     /// Rasterise one glyph at `px`, hinting on (crisp stems at small sizes).
     pub fn rasterize(&mut self, glyph_id: u16, px: f32, weight: Weight) -> Option<GlyphBitmap> {
-        raster::rasterize(&mut self.scale, self.bytes(weight), glyph_id, px, true)
+        // The fields are destructured on purpose: `self.bytes(..)` borrows all of
+        // `self` immutably, which would collide with the mutable borrow of the
+        // rasteriser's context.
+        let Self { regular, bold, scale } = self;
+        let bytes = face(regular.as_slice(), bold.as_deref(), weight);
+        raster::rasterize(scale, bytes, glyph_id, px, true)
     }
 
     /// What to draw for `codepoint`, including the substitution policy.
@@ -154,6 +156,14 @@ impl FontStack {
     fn bytes_are_a_font(data: &[u8]) -> bool {
         swash::FontRef::from_index(data, 0).is_some()
             && rustybuzz::Face::from_slice(data, 0).is_some()
+    }
+}
+
+/// Pick the face for `weight`; bold falls back to the regular face.
+fn face<'a>(regular: &'a [u8], bold: Option<&'a [u8]>, weight: Weight) -> &'a [u8] {
+    match weight {
+        Weight::Bold => bold.unwrap_or(regular),
+        Weight::Regular => regular,
     }
 }
 

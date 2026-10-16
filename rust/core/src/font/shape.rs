@@ -43,7 +43,9 @@ pub fn shape_text(data: &[u8], text: &str, ligatures: bool) -> Option<Vec<Shaped
             .iter()
             .zip(positions)
             .map(|(info, position)| ShapedGlyph {
-                glyph_id: info.glyph_id,
+                // rustybuzz keeps the id in a `u32` field but guarantees it fits
+                // a `u16` (OpenType glyph ids are 16-bit).
+                glyph_id: info.glyph_id as u16,
                 cluster: info.cluster,
                 x_advance: position.x_advance,
                 x_offset: position.x_offset,
@@ -59,9 +61,7 @@ pub fn advance_units(data: &[u8], codepoint: char) -> Option<f32> {
     let mut buffer = [0u8; 4];
     let text = codepoint.encode_utf8(&mut buffer);
 
-    shape_text(data, text, false)?
-        .first()
-        .map(|glyph| glyph.x_advance as f32)
+    shape_text(data, text, false)?.first().map(|glyph| glyph.x_advance as f32)
 }
 
 /// Font units per em, i.e. the scale factor of the shaped values.

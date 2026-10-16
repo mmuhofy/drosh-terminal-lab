@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - CI: a `Gate 2 — Rust font stack (swash glyphs)` job runs the font tests
   against the bundled font and cross-checks the crate for
   `aarch64-linux-android`.
+- `LICENSE` (GPL-3.0, taken verbatim from gnu.org) and `THIRD-PARTY.md`: every
+  component that is actually distributed — the bundled font and each crate
+  linked into `libdrosh_core.so` — with the license read from the crates' own
+  metadata. The font's OFL text ships inside the APK next to the font, which is
+  what the license requires.
 
 ## [0.2.0] - 2026-10-16
 
