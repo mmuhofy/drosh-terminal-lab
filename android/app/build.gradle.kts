@@ -44,4 +44,4 @@ android {
 }
 
 // The Rust core reaches the APK through src/main/jniLibs/arm64-v8a/
-// (produced by cargo-ndk in CI; never committed — see .gitignore).
+// (produced by the CI Rust build; never committed — see .gitignore).

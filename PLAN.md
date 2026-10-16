@@ -87,6 +87,33 @@ is closed; the install floor will keep rising — known, accepted risk.
   Rustfmt: `rust/rustfmt.toml` uses stable options only
   (`use_small_heuristics = "Max"`, as alacritty does) because CI runs stable
   rustfmt, which ignores nightly-only options.
+- 2026-10-16: Phase A Kotlin thin shell written and green in CI (run
+  <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38870912218>).
+  Four things worth recording:
+  1. **Library name**: the crate is `drosh-core`, so Cargo produces
+     `libdrosh_core.so` (a hyphen becomes an underscore) and
+     `System.loadLibrary("drosh_core")` is what finds it. §4 and the README
+     said `libdrosh-core.so`; corrected.
+  2. **cargo-ndk is not used.** The runner image exports `ANDROID_NDK`,
+     `ANDROID_NDK_ROOT` and `ANDROID_NDK_LATEST_HOME` pointing at its own NDK,
+     and cargo-ndk 4.1.2 aborts on the disagreement with a pinned
+     `ANDROID_NDK_HOME`. CI instead points cargo at the pinned NDK's clang/ar
+     through `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` and
+     `CC_aarch64_linux_android` — one less tool, and the NDK version stays the
+     one we install (r28c, `28.2.13676358`).
+  3. **Phase A draws with an Android-baked ASCII atlas** (coverage, tinted by
+     the shader) instead of the D4 font stack. D4 is unchanged: the atlas
+     interface (uv per glyph index + cell metrics) is exactly what the Rust
+     rasterizer will fill in Phase B behind Gate 2. Non-ASCII renders as `?`
+     until then.
+  4. **Input** is an invisible text editor whose `BaseInputConnection`
+     intercepts committed text and deletions (the Termux recipe; sentinel
+     variants break with predictive keyboards). D6 is unchanged — Phase B adds
+     the escape encoder and the extra-keys row on top.
+  Also verified while writing it: alacritty's palette constants quoted in the
+  Kotlin palette (16 ANSI colors, primary fg/bg, `DIM_FACTOR = 0.66`, the
+  16..231 cube and 232..255 gray ramp) were read from
+  `alacritty/src/config/color.rs` and `alacritty/src/display/color.rs`.
 
 ## 4. Target architecture
 
@@ -101,7 +128,7 @@ is closed; the install floor will keep rising — known, accepted risk.
 └───────────────┬──────────────────────────────────────────┘
                 │ JNI (zero-copy snapshot + event queue)
 ┌───────────────┴──────────────────────────────────────────┐
-│ Rust core (cdylib "libdrosh-core.so")                     │
+│ Rust core (cdylib "libdrosh_core.so")                     │
 │  ffi/        session, snapshot, font, events              │
 │  session/    Term + EventLoop + PTY (chroot-ng argv)      │
 │  bridge/     Term → flat cell buffer + damage; EventListener│
@@ -153,6 +180,11 @@ and is not part of this inventory.
 | `android/input/` | 3–4 | escape encoder, extra-keys row, gestures (select/scroll/zoom), clipboard |
 | `android/guest/` | 2–3 | rootfs download/verify/extract, chroot-ng launch |
 
+Phase A ships all of this inside the single `android/app` module (packages
+`dev.drosh.lab.core`, `.render`, `.input`); the module split happens in Phase B,
+when the renderer and input directories have enough code to be worth building
+separately.
+
 ## 7. Phases
 
 All gates and builds run in CI (D13). Local runs are prohibited. Device
@@ -164,7 +196,9 @@ acceptance uses the CI-built APK artifact.
 session.
 
 - Repo skeleton: cargo workspace + android/ + bench/; git init (done)
-- cargo-ndk profile: arm64-v8a, release (LTO, strip, panic=abort)
+- Android build: arm64-v8a, release (LTO, strip, panic=abort); CI links the
+  core with the pinned NDK toolchain (2026-10-16: cargo-ndk is *not* used, see
+  the decision history) and asserts the APK carries `libdrosh_core.so`
 - GitHub Actions: cargo check (host + aarch64-linux-android), clippy `-D
   warnings`, fmt check, cargo test, gradle assembleDebug
 - **Gate 1 (CI):** `cargo check --target aarch64-linux-android` — does
@@ -175,8 +209,12 @@ session.
 - PTY: spawn `/system/bin/sh` with raw libc (posix_openpt + TIOCGPTPEER +
   login-tty child; Termi's OEM fallback: slave-stdio path when the login-tty
   spawn fails)
-- Kotlin thin shell: Activity + SurfaceView + JNI binding + raw snapshot
-  rendering (goal is proving the data path, not quality)
+- Kotlin thin shell (implemented 2026-10-16): `GLSurfaceView` + GL ES 3.0
+  renderer fed straight by the snapshot buffer, keyboard input through an input
+  connection, cursor blink and drag-to-scroll — the goal is proving the data
+  path, not quality. The Phase A glyphs come from an ASCII atlas baked with
+  Android's monospace typeface; Phase B replaces its source with the Rust font
+  stack (D4) behind the same interface.
 - Host tests: cargo test (golden VT, snapshot, PTY end-to-end)
 
 **Acceptance:** on a physical device (CI-built APK artifact) `echo hello` /
@@ -244,7 +282,10 @@ them (AGENTS.md rule 2):
 3. swash compiles for Android and produces color-emoji (CBDT/COLR) bitmaps —
    Phase B Gate 2; otherwise the emoji overlay path
 4. chroot-ng probe result + file-backed mode — Phase C Gate 3
-5. GL ES 3.0 instancing available on target devices (fallback: GLES2 path)
+5. GL ES 3.0 available on target devices (fallback: GLES2 path). The Phase A
+   shell requests a 3.0 context (D3) and logs `GL_VERSION`; an unsupported
+   device would show a black screen plus a toast instead of glyphs. Unverified
+   until a device run.
 
 ## 9. Risks and Plan-B triggers
 

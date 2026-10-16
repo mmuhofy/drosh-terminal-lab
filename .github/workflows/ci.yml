@@ -7,7 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Pinned NDK (r28c): the Rust core is linked with its clang through cargo-ndk.
+  # Pinned NDK (r28c): the Rust core is linked with its clang.
   NDK_VERSION: 28.2.13676358
 
 # All builds run here — no local Rust/Gradle builds (AGENTS.md rule 10).
@@ -65,7 +65,7 @@ jobs:
         # still asks sdkmanager for the removed legacy "tools" package.
         # cmdline-tools build 11076708 is a stable, long-lived download.
         # NDK 28.2.13676358 (r28c) is pinned: the Rust core is linked with its
-        # clang through cargo-ndk, so the toolchain must not drift.
+        # clang, so the toolchain must not drift.
         run: |
           set -euo pipefail
           SDK_DIR="$RUNNER_TEMP/android-sdk"
@@ -79,8 +79,9 @@ jobs:
             "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
           echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
-          # The runner image ships its own NDK and sets ANDROID_NDK_ROOT to it;
-          # cargo-ndk aborts when that disagrees with ANDROID_NDK_HOME.
+          # The runner image ships its own NDK and points ANDROID_NDK* at it.
+          # These two cover tools that read the environment; the Rust build step
+          # sets its own copies at step level, and those always win.
           echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$SDK_DIR/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"

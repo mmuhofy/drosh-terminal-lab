@@ -1,4 +1,4 @@
-# Rust core (`libdrosh-core.so`)
+# Rust core (`libdrosh_core.so`)
 
 The Rust half of the terminal core — built as a cdylib; the Android app talks to
 it over JNI. See [`../../PLAN.md`](../../PLAN.md) §5 for the design and

@@ -10,9 +10,20 @@ Android, with measurements. Once proven, the core moves into Drosh as a module.
 
 ## Status
 
-🚧 **Phase A — the Rust core is implemented; CI is the verification.**
-PTY + `alacritty_terminal` + snapshot bridge are in `rust/core` with host tests.
-Next up: the Kotlin thin shell and device acceptance (see [`TODO.md`](TODO.md)).
+🚧 **Phase A — the Rust core and the Kotlin thin shell are implemented; CI is
+the verification.** PTY + `alacritty_terminal` + the snapshot bridge live in
+`rust/core` (with host tests), and `android/app` renders the snapshot on GL ES
+3.0 with keyboard input. What is left in Phase A is **device acceptance**: the
+CI-built APK has to be installed on a real device and show `echo hello` / `ls`.
+
+Device test recipe: open the latest green run of
+[CI](https://github.com/mmuhofy/drosh-terminal-lab/actions/workflows/ci.yml),
+download the `debug-apk` artifact, unzip it, install `app-debug.apk` on the
+device (debug-signed — allow "install unknown apps" for the file manager), tap
+the terminal, and type a command. If something misbehaves, `adb logcat -s
+DroshLab` shows the core version, the grid size, `GL_VERSION` and every
+failure; the same failures also appear as toasts.
+
 The documents:
 
 | Document | Contents |
@@ -30,7 +41,7 @@ The documents:
 drosh-terminal-lab/
 ├── rust/
 │   ├── chroot-ng/        vendored subtree (Apache-2.0, commit-pinned)
-│   └── core/             cdylib "libdrosh-core.so" — the Rust core
+│   └── core/             cdylib "libdrosh_core.so" — the Rust core
 ├── android/
 │   ├── app/              thin shell: Activity, SurfaceView/EGL, sessions
 │   ├── renderer/         GL ES 3.0 terminal renderer (Kotlin)
