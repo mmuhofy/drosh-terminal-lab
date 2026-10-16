@@ -44,37 +44,40 @@ so the number had changed by the time it was written down (and the workload —
 
 ## Getting the numbers to the reviewer
 
-Three channels, in order of how much manual work they need:
+The app **hosts** the endpoint (`bench/BenchServer.kt`); nothing is uploaded from
+the device and the app never dials out. Whoever reviews the numbers pulls from
+it:
 
-1. **Loopback collector (aimed for, device half is built).** The tester runs a
-   collector *on the device* and bridges it out, so a frozen line is posted to
-   `http://127.0.0.1:8080/bench` the moment the status line is tapped
-   (`bench/BenchUploader.kt`: off the main thread, loopback constants only, never
-   on a timer). Verified from the reviewing side: every path and POST to that
-   address answers `200 WORKING`.
-   **Open:** the collector does not serve back what it stores — a marker POSTed
-   from here is not visible at `/`, `/data`, `/last`, `/bench`, `/results`,
-   `/log` or `/lines` — so the read-back endpoint has to be defined before this
-   channel replaces the ones below.
-2. **By hand:** `adb logcat -d -s DroshLabBench` and paste the lines (the same
-   line is also appended to `files/bench.log`).
-3. **Semi-automatically:**
+```sh
+./bench/fetch-results.sh scroll-cat          # writes bench-results/<stamp>-scroll-cat.txt
+./bench/fetch-results.sh scroll-cat --push   # ... and pushes it on a bench-results branch
+# or directly:
+curl http://127.0.0.1:8080/info; curl http://127.0.0.1:8080/bench.log
+```
 
-   ```sh
-   ./bench/push-results.sh scroll-cat            # writes bench-results/<stamp>-scroll-cat.txt
-   ./bench/push-results.sh scroll-cat --push     # ... and pushes it on a bench-results branch
-   ```
+| Path | What it answers |
+|---|---|
+| `GET /` | a short index naming the other paths |
+| `GET /info` | device, Android, kernel, core version, grid, cell metrics, density, GL, font |
+| `GET /bench.log` | one header line per app start, then one line per frozen capture |
 
-   The script uses *your* `adb` and *your* git credentials on your machine. No
-   credential is ever built into the APK, and the app posts only to loopback.
+The server binds **every interface** on a fixed port (`8080`, logged at startup
+along with the addresses to try), so whichever address the bridge can reach
+answers — the device's Wi-Fi address or its loopback. That makes the endpoint
+reachable from the network the device is on: accepted for a lab build (it serves
+bench numbers and device facts, never terminal content, and the API is three
+read-only GETs), and not what a shipped build would do — that one binds loopback
+and leaves the bridging to `adb forward`.
 
-The device itself cannot push to a build box: its `127.0.0.1` is the device, and
-nothing routes from a phone to the environment where the work happens — which is
-why the collector has to run on the device and be bridged, rather than the app
-uploading somewhere.
+**The app has to be running** for the endpoint to exist; that is the trade the
+device tester accepted in exchange for never having to copy numbers by hand.
+
+If the bridge is not in place, the machine with `adb` is enough:
+
+```sh
+adb forward tcp:8080 tcp:8080     # then the same ./bench/fetch-results.sh
+adb logcat -d -s DroshLabBench    # or just the logcat lines
+```
 
 Rejected: an in-app upload to a GitHub API (a token inside a debug APK —
-AGENTS.md §11) or to a public paste service (a terminal uploading to a third
-party). The `INTERNET` permission the app now declares exists for the loopback
-socket alone (Android requires it even for 127.0.0.1); it is documented in the
-manifest and this is the only code that uses it.
+AGENTS.md §11) or to a public paste service (a terminal phoning home).
