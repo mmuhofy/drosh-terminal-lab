@@ -14,17 +14,22 @@ import javax.microedition.khronos.opengles.GL10
 
 /**
  * The Phase B renderer: one textured quad per visible glyph plus one per
- * non-default background, all in a single interleaved vertex buffer and a single
+ * non-default background, in a single interleaved vertex buffer and a single
  * draw call, with the glyph coverage coming from the Rust font stack (D4) and
  * the cell geometry from its metrics.
  *
- * Per-cell glyph results are cached in parallel arrays, so a steady-state frame
- * does no map lookups and no allocation; the atlas is only touched when a cell's
- * content changed. Damage-limited redraw and instancing are the next steps in
- * the Phase B plan — this renderer still draws the whole grid.
+ * **Damage-limited:** every grid row owns a fixed slot in the buffer. A frame
+ * rebuilds only the rows the engine reported as damaged (plus the row the cursor
+ * sits on or just left) and uploads just those slots with `glBufferSubData`;
+ * unused slots hold degenerate quads, which cost nothing to rasterise. The
+ * engine gives a column range per damaged line, but the whole row is rebuilt —
+ * that keeps the slot arithmetic honest, and a row is a few hundred quads.
  *
- * GL ES 3.0 as decided in D3; `glVersion` is logged so a device that only offers
- * GL ES 2 can be identified (open item 5 in PLAN.md §8).
+ * Within a row, glyph lookups go through a per-cell cache, so a steady-state
+ * frame neither allocates nor looks anything up.
+ *
+ * Still to come in Phase B: instancing, the size buckets and the font's own
+ * strikeout metrics. GL ES 3.0 as decided in D3.
  */
 internal class TerminalRenderer(
     private val session: TerminalSession,
@@ -54,15 +59,27 @@ internal class TerminalRenderer(
     private var texture = 0
     private var vertexBuffer = 0
     private var vertices: FloatBuffer? = null
+    private val atlasSize = atlas.size.toFloat()
     private var width = 0
     private var height = 0
     private var columns = 0
     private var rows = 0
 
-    // Per-cell glyph cache (see `onDrawFrame`).
+    // Slot layout: each row owns `floatsPerRow` floats.
+    private var rowSlotQuads = 0
+    private var floatsPerRow = 0
+    /** The next frame rebuilds every row (first frame, resize, scroll). */
+    private var fullRebuild = true
+
+    // Per-cell glyph cache (see `buildRow`).
     private var cellCodepoints = IntArray(0)
     private var cellBold = BooleanArray(0)
     private var cellEntries = arrayOfNulls<GlyphEntry>(0)
+
+    // Rows to rebuild this frame.
+    private var dirtyRows = BooleanArray(0)
+    private var lastCursorRow = -1
+    private var lastCursorVisible = false
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         glVersion = GLES20.glGetString(GLES20.GL_VERSION) ?: "unknown"
@@ -100,8 +117,7 @@ internal class TerminalRenderer(
         val newRows = (height / metrics.height).toInt().coerceAtLeast(MIN_ROWS)
         columns = newColumns
         rows = newRows
-        ensureCapacity(newColumns, newRows)
-        resetCellCache(newColumns, newRows)
+        resetGrid(newColumns, newRows)
         onGridChanged?.invoke(newColumns, newRows)
     }
 
@@ -114,125 +130,232 @@ internal class TerminalRenderer(
         if (program == 0 || session.columns != columns || session.rows != rows) {
             return
         }
-        if (session.pump() == NativeCore.INVALID_HANDLE) {
+
+        // Everything that can bail out has bailed out: from here the damage is
+        // consumed, so the frame has to be drawn.
+        val damage = session.pump()
+        if (damage == NativeCore.INVALID_HANDLE) {
             return
         }
+
         if (atlas.dirty) {
             uploadAtlas()
         }
 
         val state = session.stateArray
-        val cellWidth = metrics.width
-        val cellHeight = metrics.height
-        val baselineOffset = metrics.ascent
         val cursorRow = state[NativeCore.STATE_CURSOR_ROW]
-        val cursorColumn = state[NativeCore.STATE_CURSOR_COL]
         val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
-        val atlasSize = atlas.size.toFloat()
+        val cursorMoved = cursorRow != lastCursorRow || cursorVisible != lastCursorVisible
 
-        floats.clear()
+        if (fullRebuild || damage == NativeCore.DAMAGE_FULL) {
+            for (row in 0 until rows) {
+                buildRow(row, buffer, state)
+            }
+            uploadAllRows(floats)
+            fullRebuild = false
+        } else {
+            for (line in 0 until damage) {
+                markDirty(session.damageRow(line))
+            }
 
-        for (row in 0 until rows) {
-            for (column in 0 until columns) {
-                val cell = row * columns + column
-                val at = cell * NativeCore.CELL_BYTES
-                val codepoint = buffer.getInt(at + NativeCore.CELL_OFFSET_CODEPOINT)
-                val fgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_FG)
-                val bgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_BG)
-                val flags = buffer.getShort(at + NativeCore.CELL_OFFSET_FLAGS).toInt() and 0xffff
+            // The cursor is not part of the engine's damage: it moves by itself.
+            if (cursorMoved) {
+                markDirty(cursorRow)
+                markDirty(lastCursorRow)
+            }
 
-                if (flags and NativeCore.FLAG_HIDDEN != 0) continue
-                if (flags and NativeCore.FLAG_WIDE_CHAR_SPACER != 0) continue
-                if (flags and NativeCore.FLAG_LEADING_WIDE_CHAR_SPACER != 0) continue
-
-                var foreground = Palette.resolve(fgEncoded, Palette.DEFAULT_FOREGROUND)
-                var background = Palette.resolve(bgEncoded, Palette.DEFAULT_BACKGROUND)
-                val bold = flags and NativeCore.FLAG_BOLD != 0
-
-                if (flags and NativeCore.FLAG_INVERSE != 0) {
-                    val swap = foreground
-                    foreground = background
-                    background = swap
-                }
-
-                val cursorHere = cursorVisible &&
-                    cursorShape != NativeCore.CURSOR_HIDDEN &&
-                    row == cursorRow &&
-                    column == cursorColumn
-                if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
-                    // A block cursor is the cell drawn in the cursor colour.
-                    background = Palette.CURSOR
-                    foreground = Palette.DEFAULT_BACKGROUND
-                }
-
-                val x = column * cellWidth
-                val y = row * cellHeight
-
-                if (background != Palette.DEFAULT_BACKGROUND) {
-                    addSolid(x, y, cellWidth, cellHeight, background)
-                }
-
-                val blank = codepoint == ' '.code
-                if (!blank) {
-                    // One lookup per cell *change*; the frame loop reads the cache.
-                    var entry = cellEntries[cell]
-                    if (entry == null || cellCodepoints[cell] != codepoint || cellBold[cell] != bold) {
-                        entry = atlas.glyph(codepoint, bold, fontPx)
-                        cellEntries[cell] = entry
-                        cellCodepoints[cell] = codepoint
-                        cellBold[cell] = bold
-                    }
-
-                    if (entry != null && !entry.isBlank) {
-                        // `left` is relative to the pen position, `top` is the
-                        // distance from the baseline up to the bitmap's top edge.
-                        val left = x + entry.left
-                        val glyphTop = y + baselineOffset - entry.top
-                        addGlyph(
-                            left,
-                            glyphTop,
-                            entry.width,
-                            entry.height,
-                            entry.x / atlasSize,
-                            entry.y / atlasSize,
-                            (entry.x + entry.width) / atlasSize,
-                            (entry.y + entry.height) / atlasSize,
-                            foreground,
-                        )
-                    }
-                }
-
-                if (flags and NativeCore.FLAG_ANY_UNDERLINE != 0) {
-                    addSolid(x, y + baselineOffset + metrics.underline, cellWidth, metrics.rule, foreground)
-                }
-                if (flags and NativeCore.FLAG_STRIKEOUT != 0) {
-                    // The font's own strikeout position is not on the wire yet
-                    // (TODO.md); a third of the ascent above the baseline is the
-                    // usual place and reads correctly at any size.
-                    val strike = y + baselineOffset - metrics.ascent * 0.35f
-                    addSolid(x, strike, cellWidth, metrics.rule, foreground)
-                }
-
-                if (cursorHere) {
-                    when (cursorShape) {
-                        NativeCore.CURSOR_BEAM ->
-                            addSolid(x, y, cellWidth * 0.12f, cellHeight, Palette.CURSOR)
-                        NativeCore.CURSOR_UNDERLINE ->
-                            addSolid(x, y + cellHeight * 0.86f, cellWidth, cellHeight * 0.14f, Palette.CURSOR)
-                        NativeCore.CURSOR_HOLLOW ->
-                            addSolid(x, y + cellHeight * 0.9f, cellWidth, cellHeight * 0.1f, Palette.CURSOR)
-                    }
+            for (row in 0 until rows) {
+                if (dirtyRows[row]) {
+                    buildRow(row, buffer, state)
+                    uploadRow(floats, row)
+                    dirtyRows[row] = false
                 }
             }
         }
 
-        draw(floats)
+        lastCursorRow = cursorRow
+        lastCursorVisible = cursorVisible
+        draw(rows * rowSlotQuads * QUAD_VERTICES)
+
+        if (cursorShape == NativeCore.CURSOR_HIDDEN) {
+            lastCursorRow = -1
+        }
     }
 
-    private fun draw(floats: FloatBuffer) {
-        floats.flip()
-        val count = floats.remaining() / FLOATS_PER_VERTEX
-        if (count == 0) {
+    /** Build every quad of one row into that row's slot. */
+    private fun buildRow(row: Int, buffer: java.nio.ByteBuffer, state: IntArray) {
+        val floats = vertices ?: return
+        val base = row * floatsPerRow
+        floats.limit(base + floatsPerRow)
+        floats.position(base)
+
+        val cursorRow = state[NativeCore.STATE_CURSOR_ROW]
+        val cursorColumn = state[NativeCore.STATE_CURSOR_COL]
+        val cursorShape = state[NativeCore.STATE_CURSOR_SHAPE]
+
+        for (column in 0 until columns) {
+            val cell = row * columns + column
+            val at = cell * NativeCore.CELL_BYTES
+            val codepoint = buffer.getInt(at + NativeCore.CELL_OFFSET_CODEPOINT)
+            val fgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_FG)
+            val bgEncoded = buffer.getInt(at + NativeCore.CELL_OFFSET_BG)
+            val flags = buffer.getShort(at + NativeCore.CELL_OFFSET_FLAGS).toInt() and 0xffff
+
+            if (flags and NativeCore.FLAG_HIDDEN != 0) continue
+            if (flags and NativeCore.FLAG_WIDE_CHAR_SPACER != 0) continue
+            if (flags and NativeCore.FLAG_LEADING_WIDE_CHAR_SPACER != 0) continue
+
+            var foreground = Palette.resolve(fgEncoded, Palette.DEFAULT_FOREGROUND)
+            var background = Palette.resolve(bgEncoded, Palette.DEFAULT_BACKGROUND)
+            val bold = flags and NativeCore.FLAG_BOLD != 0
+
+            if (flags and NativeCore.FLAG_INVERSE != 0) {
+                val swap = foreground
+                foreground = background
+                background = swap
+            }
+
+            val cursorHere = cursorVisible &&
+                cursorShape != NativeCore.CURSOR_HIDDEN &&
+                row == cursorRow &&
+                column == cursorColumn
+            if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
+                // A block cursor is the cell drawn in the cursor colour.
+                background = Palette.CURSOR
+                foreground = Palette.DEFAULT_BACKGROUND
+            }
+
+            val x = column * metrics.width
+            val y = row * metrics.height
+
+            if (background != Palette.DEFAULT_BACKGROUND) {
+                addSolid(x, y, metrics.width, metrics.height, background)
+            }
+
+            if (codepoint != ' '.code) {
+                // One lookup per cell *change*; the frame loop reads the cache.
+                var entry = cellEntries[cell]
+                if (entry == null || cellCodepoints[cell] != codepoint || cellBold[cell] != bold) {
+                    entry = atlas.glyph(codepoint, bold, fontPx)
+                    cellEntries[cell] = entry
+                    cellCodepoints[cell] = codepoint
+                    cellBold[cell] = bold
+                }
+
+                if (entry != null && !entry.isBlank) {
+                    // `left` is relative to the pen position, `top` is the
+                    // distance from the baseline up to the bitmap's top edge.
+                    val glyphLeft = x + entry.left
+                    val glyphTop = y + metrics.ascent - entry.top
+                    addGlyph(
+                        glyphLeft,
+                        glyphTop,
+                        entry.width,
+                        entry.height,
+                        entry.x / atlasSize,
+                        entry.y / atlasSize,
+                        (entry.x + entry.width) / atlasSize,
+                        (entry.y + entry.height) / atlasSize,
+                        foreground,
+                    )
+                }
+            }
+
+            if (flags and NativeCore.FLAG_ANY_UNDERLINE != 0) {
+                addSolid(
+                    x,
+                    y + metrics.ascent + metrics.underline,
+                    metrics.width,
+                    metrics.rule,
+                    foreground,
+                )
+            }
+            if (flags and NativeCore.FLAG_STRIKEOUT != 0) {
+                // The font's own strikeout position is not on the wire yet
+                // (TODO.md); a third of the ascent above the baseline is the
+                // usual place and reads correctly at any size.
+                addSolid(
+                    x,
+                    y + metrics.ascent - metrics.ascent * 0.35f,
+                    metrics.width,
+                    metrics.rule,
+                    foreground,
+                )
+            }
+
+            if (cursorHere) {
+                when (cursorShape) {
+                    NativeCore.CURSOR_BEAM ->
+                        addSolid(x, y, metrics.width * 0.12f, metrics.height, Palette.CURSOR)
+                    NativeCore.CURSOR_UNDERLINE ->
+                        addSolid(
+                            x,
+                            y + metrics.height * 0.86f,
+                            metrics.width,
+                            metrics.height * 0.14f,
+                            Palette.CURSOR,
+                        )
+                    NativeCore.CURSOR_HOLLOW ->
+                        addSolid(
+                            x,
+                            y + metrics.height * 0.9f,
+                            metrics.width,
+                            metrics.height * 0.1f,
+                            Palette.CURSOR,
+                        )
+                }
+            }
+        }
+
+        // Pad the rest of the slot with degenerate quads: zero area, so they
+        // rasterise nothing and the row keeps its fixed stride.
+        var used = (floats.position() - base) / FLOATS_PER_QUAD
+        if (used > rowSlotQuads) {
+            Log.e(TAG, "row $row used $used quads, slot holds $rowSlotQuads")
+            used = rowSlotQuads
+        }
+        while (used < rowSlotQuads) {
+            addDegenerateQuad(floats)
+            used += 1
+        }
+
+        floats.limit(floats.capacity())
+    }
+
+    private fun markDirty(row: Int) {
+        if (row in dirtyRows.indices) {
+            dirtyRows[row] = true
+        }
+    }
+
+    private fun uploadAllRows(floats: FloatBuffer) {
+        floats.position(0)
+        floats.limit(rows * floatsPerRow)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
+        GLES20.glBufferData(
+            GLES20.GL_ARRAY_BUFFER,
+            rows * floatsPerRow * FLOAT_BYTES,
+            floats,
+            GLES20.GL_DYNAMIC_DRAW,
+        )
+        floats.limit(floats.capacity())
+    }
+
+    private fun uploadRow(floats: FloatBuffer, row: Int) {
+        floats.position(row * floatsPerRow)
+        floats.limit(row * floatsPerRow + floatsPerRow)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
+        GLES20.glBufferSubData(
+            GLES20.GL_ARRAY_BUFFER,
+            row * floatsPerRow * FLOAT_BYTES,
+            floatsPerRow * FLOAT_BYTES,
+            floats,
+        )
+        floats.limit(floats.capacity())
+    }
+
+    private fun draw(vertexCount: Int) {
+        if (vertexCount == 0) {
             return
         }
 
@@ -243,12 +366,6 @@ internal class TerminalRenderer(
         GLES20.glUniform1i(atlasUniform, 0)
 
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
-        GLES20.glBufferData(
-            GLES20.GL_ARRAY_BUFFER,
-            floats.remaining() * FLOAT_BYTES,
-            floats,
-            GLES20.GL_DYNAMIC_DRAW,
-        )
 
         val stride = FLOATS_PER_VERTEX * FLOAT_BYTES
         GLES20.glEnableVertexAttribArray(ATTRIB_POSITION)
@@ -258,7 +375,7 @@ internal class TerminalRenderer(
         GLES20.glEnableVertexAttribArray(ATTRIB_COLOR)
         GLES20.glVertexAttribPointer(ATTRIB_COLOR, 4, GLES20.GL_FLOAT, false, stride, 4 * FLOAT_BYTES)
 
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, count)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
 
         GLES20.glDisableVertexAttribArray(ATTRIB_POSITION)
         GLES20.glDisableVertexAttribArray(ATTRIB_TEX_COORD)
@@ -276,17 +393,7 @@ internal class TerminalRenderer(
         v1: Float,
         color: Int,
     ) {
-        addQuad(
-            left,
-            top,
-            left + bitmapWidth,
-            top + bitmapHeight,
-            u0,
-            v0,
-            u1,
-            v1,
-            color,
-        )
+        addQuad(left, top, left + bitmapWidth, top + bitmapHeight, u0, v0, u1, v1, color)
     }
 
     /** A solid rectangle: background, underline, strikeout or cursor. */
@@ -328,6 +435,13 @@ internal class TerminalRenderer(
         vertex(floats, left, bottom, uLeft, vBottom, red, green, blue)
     }
 
+    /** A quad whose six vertices coincide: nothing to rasterise. */
+    private fun addDegenerateQuad(floats: FloatBuffer) {
+        repeat(QUAD_VERTICES) {
+            vertex(floats, 0f, 0f, atlas.solidU, atlas.solidV, 0f, 0f, 0f)
+        }
+    }
+
     private fun vertex(
         floats: FloatBuffer,
         x: Float,
@@ -348,29 +462,33 @@ internal class TerminalRenderer(
         floats.put(1f)
     }
 
-    private fun ensureCapacity(columns: Int, rows: Int) {
-        // Worst case: a background quad and a glyph quad for every cell, plus the
-        // cursor. Allocated on resize, never in the frame loop.
-        val quads = columns * rows * 2 + 4
-        val floats = quads * QUAD_VERTICES * FLOATS_PER_VERTEX
+    /** Called on resize: new slot layout, new cell cache, everything rebuilt. */
+    private fun resetGrid(newColumns: Int, newRows: Int) {
+        rowSlotQuads = newColumns * QUADS_PER_CELL + SLACK_QUADS_PER_ROW
+        floatsPerRow = rowSlotQuads * QUAD_VERTICES * FLOATS_PER_VERTEX
+
+        val floats = newRows * floatsPerRow
         if (vertices == null || floats > vertices!!.capacity()) {
             vertices = ByteBuffer
                 .allocateDirect(floats * FLOAT_BYTES)
                 .order(ByteOrder.nativeOrder())
                 .asFloatBuffer()
+        } else {
+            vertices!!.clear()
         }
-    }
 
-    private fun resetCellCache(columns: Int, rows: Int) {
-        val cells = columns * rows
-        if (cellEntries.size == cells) {
-            // Same grid: only the stored codepoints have to be forgotten.
-            java.util.Arrays.fill(cellCodepoints, -1)
-            return
-        }
+        // No need to wipe the buffer: `fullRebuild` writes every slot — with real
+        // quads or with degenerate padding — before anything is drawn.
+
+        val cells = newColumns * newRows
         cellCodepoints = IntArray(cells) { -1 }
         cellBold = BooleanArray(cells)
         cellEntries = arrayOfNulls(cells)
+
+        dirtyRows = BooleanArray(newRows)
+        fullRebuild = true
+        lastCursorRow = -1
+        lastCursorVisible = false
     }
 
     /** The atlas is a single-channel texture; the shader tints its coverage. */
@@ -455,9 +573,17 @@ internal class TerminalRenderer(
         const val FLOAT_BYTES = 4
         const val QUAD_VERTICES = 6
         const val FLOATS_PER_VERTEX = 8
+        const val FLOATS_PER_QUAD = QUAD_VERTICES * FLOATS_PER_VERTEX
         const val ATTRIB_POSITION = 0
         const val ATTRIB_TEX_COORD = 1
         const val ATTRIB_COLOR = 2
+
+        /**
+         * Quads one cell can need: background, glyph, underline, strikeout and a
+         * beam/underline/hollow cursor. A block cursor replaces the background.
+         */
+        const val QUADS_PER_CELL = 5
+        const val SLACK_QUADS_PER_ROW = 4
 
         val VERTEX_SHADER = """
             #version 300 es

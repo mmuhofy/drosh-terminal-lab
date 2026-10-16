@@ -57,6 +57,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The layout is a vertical column: the GL surface takes everything above the
   extra-keys row, so the grid is told about a smaller surface instead of drawing
   underneath the buttons.
+- The renderer is damage-limited: every grid row owns a fixed slot in the vertex
+  buffer, a frame rebuilds only the rows the engine reported (plus the cursor's
+  row) and uploads them with `glBufferSubData`, and unused slots hold degenerate
+  quads that rasterise nothing. The 32 ms `Handler` poll is gone: a
+  Choreographer-driven `FrameLoop` checks the engine's wakeup flag once per
+  vsync, which also makes the cursor blink cheap (one row).
 
 ## [0.2.0] - 2026-10-16
 

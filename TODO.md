@@ -255,14 +255,24 @@ session. (Details: PLAN.md §7-Phase A)
       grid, the baselines, the underline position and the rule thickness all
       come from the bundled face (the Android-baked `AsciiAtlas` is gone)
 - [x] Bold uses the real bold face (the fake-bold second pass is gone)
+- [x] `renderer/loop.kt` → `FrameLoop`: Choreographer instead of a 32 ms
+      `Handler` poll, so the engine's wakeup flag is checked once per vsync and
+      output lands on the next refresh. It also owns the cursor blink, so the
+      two timers cannot drift apart.
+- [x] Damage-limited redraw: each grid row owns a fixed slot in the vertex
+      buffer; a frame rebuilds only the rows the engine reported (plus the row
+      the cursor sits on or just left) and uploads just those with
+      `glBufferSubData`. Unused slots hold degenerate quads, which rasterise
+      nothing. The engine gives a column range per damaged line, but the whole
+      row is rebuilt — that keeps the slot arithmetic honest, and a row is a few
+      hundred quads.
 - [ ] `renderer/atlas.kt`: size buckets (1x/1.5x/2x/3x) — the atlas is keyed by
       pixel size already, so buckets are about picking the size per zoom level
-- [ ] `renderer/shader.kt`: GLES3 instancing (vertex + quad shader)
-- [ ] `renderer/quads.kt`: instanced quad batch (glyphs + bg/cursor rects)
-- [ ] `renderer/loop.kt`: Choreographer + damage-limited redraw + frame skip
-      (the renderer still draws the whole grid every frame; the damage list the
-      bridge produces is unused)
-- [ ] Cursor: blink + shape (block/bar) without full redraws
+- [ ] `renderer/shader.kt` / `quads.kt`: GLES3 instancing (the buffer is already
+      one draw call; instancing would cut the CPU-side vertex building, which is
+      not the bottleneck yet)
+- [ ] Cursor: shape (block/bar) without full redraws — block/beam/underline work;
+      the blink redraws one row, which is the cheap part already
 - [ ] Strikeout position: approximated at 35% of the ascent because the font's
       own strikeout metrics are not on the wire yet (`nativeFontMetrics` would
       need two more floats)

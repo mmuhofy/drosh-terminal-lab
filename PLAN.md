@@ -215,6 +215,18 @@ is closed; the install floor will keep rising — known, accepted risk.
   defect (Shift+Tab sent `ESC [ SPACE Z` — a stray space in a string template),
   so encoder changes now lean on the device test instead. Recorded here so the
   gap stays deliberate and is not silently re-added.
+- 2026-10-16: Phase B renderer, second decision: **damage-limited redraw by row
+  slots.** Every grid row owns a fixed slot in the vertex buffer, unused slots
+  are filled with degenerate quads (zero area, so they cost nothing), and a
+  frame rebuilds only what the engine reported — the damage list's `(row, left,
+  right)` triples, plus the row the cursor left or moved to, because the engine
+  does not count cursor movement as damage. The whole row is rebuilt rather than
+  the reported column range: it keeps the slot arithmetic honest and a row is a
+  few hundred quads, so the extra work is not worth a second addressing scheme.
+  The frame pump moved from a 32 ms `Handler` poll to a Choreographer
+  `FrameLoop`: one wakeup-flag check per vsync (a cheap JNI call) with the cursor
+  blink on the same clock. `glBufferSubData` per damaged row replaces the whole
+  buffer upload, and the frame no longer rebuilds cells that did not change.
 ## 4. Target architecture
 
 ```

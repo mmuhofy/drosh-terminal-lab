@@ -113,7 +113,11 @@ internal class TerminalSession(
 
     /**
      * Let the core write the damaged cells into [cells]; returns the damage
-     * status ([NativeCore.DAMAGE_FULL] or a line count), or a negative code.
+     * status ([NativeCore.DAMAGE_FULL] or the number of damaged lines), or a
+     * negative code.
+     *
+     * The damage list is read through the accessors below, so the renderer never
+     * sees the array itself.
      */
     fun pump(): Int {
         val current = handle
@@ -121,12 +125,24 @@ internal class TerminalSession(
         if (current == NO_HANDLE || buffer == null) {
             return NativeCore.INVALID_HANDLE
         }
-        if (NativeCore.nativeSnapshot(current, buffer, damage) != NativeCore.OK) {
+
+        val written = NativeCore.nativeSnapshot(current, buffer, damage)
+        if (written != NativeCore.OK) {
             return NativeCore.IO_ERROR
         }
+
         NativeCore.nativeState(current, state)
         return damage[0]
     }
+
+    /** Viewport row of damaged line [index]; only valid after [pump]. */
+    fun damageRow(index: Int): Int = damage[1 + index * NativeCore.DAMAGE_STRIDE]
+
+    /** First column that changed on damaged line [index]. */
+    fun damageLeft(index: Int): Int = damage[2 + index * NativeCore.DAMAGE_STRIDE]
+
+    /** Last column that changed on damaged line [index]. */
+    fun damageRight(index: Int): Int = damage[3 + index * NativeCore.DAMAGE_STRIDE]
 
     fun write(bytes: ByteArray) {
         val current = handle
