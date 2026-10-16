@@ -75,12 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - **Named colours were truncated to 8 bits** (`bridge/cell.rs`): `NamedColor`
-  runs to 269, so `Background` (257) folded onto `Red` (1) and `Foreground`
+  runs to 268 (`DimForeground`), so `Background` (257) folded onto `Red` (1) and `Foreground`
   (256) onto `Black` (0). On the device every default cell was painted
   alacritty-red and the text went almost black — found by the Phase A device
   acceptance test and confirmed from the screenshot's pixel values
   (`#ac4342` background, `#181818` glyphs). The frozen-value test now pins every
-  named payload (0, 7, 15, 256..269) instead of only `Red`, which is why the old
+  named payload (0, 7, 15, 256..268) instead of only `Red`, which is why the old
   test passed while the format was broken.
 - **The renderer sampled the glyph atlas upside down** (`AsciiAtlas.kt`): the V
   coordinate was computed as if `GLUtils.texImage2D` flipped the bitmap's rows.

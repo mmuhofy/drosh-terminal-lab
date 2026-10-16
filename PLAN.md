@@ -156,7 +156,7 @@ is closed; the install floor will keep rising — known, accepted risk.
      silently became `Red` (1) and `Black` (0). On the device every default cell
      was alacritty-red and text nearly black; the screenshot's pixels
      (`#ac4342` / `#181818`) confirmed the code reading. The test now pins 0, 7,
-     15 and 256..269 — a frozen-value test must pin the *whole* range, not one
+     15 and 256..268 — a frozen-value test must pin the *whole* range, not one
      representative value.
   2. *Renderer*: the atlas V coordinate assumed `GLUtils.texImage2D` flips the
      bitmap's rows (it uploads them in bitmap order, so the bitmap's top row is

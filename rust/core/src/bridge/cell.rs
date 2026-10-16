@@ -21,12 +21,13 @@ use alacritty_terminal::vte::ansi::Color;
 /// Bytes per cell record.
 pub const CELL_BYTES: usize = 16;
 
-/// Color tag for a named colour (`NamedColor`, payload = its index, 0..=269).
+/// Color tag for a named colour (`NamedColor`, payload = its index, 0..=268).
 ///
 /// The payload keeps the *full* discriminant: `NamedColor` runs past 255
 /// (`Foreground = 256`, `Background = 257`, `Cursor = 258`, `DimBlack..
-/// DimWhite = 259..=266`, then 267..=269), so truncating it to 8 bits folds
-/// `Background` onto `Red`. Only `COLOR_VALUE_MASK` (24 bits) may be applied.
+/// DimWhite = 259..=266`, `BrightForeground = 267`, `DimForeground = 268`, the
+/// last variant in vte 0.15), so truncating it to 8 bits folds `Background`
+/// onto `Red`. Only `COLOR_VALUE_MASK` (24 bits) may be applied.
 pub const COLOR_TAG_NAMED: u32 = 0;
 /// Color tag for a palette index (`Indexed`, payload = 0..=255).
 pub const COLOR_TAG_INDEXED: u32 = 1;
@@ -141,7 +142,7 @@ impl CellRecord {
 /// Pack a vte color into the wire format.
 pub fn encode_color(color: Color) -> u32 {
     match color {
-        // `NamedColor` reaches 269, so the payload must not be masked down to a
+        // `NamedColor` reaches 268, so the payload must not be masked down to a
         // byte: `Background` (257) became `Red` (1) that way, which painted
         // every default cell red on the device (Phase A acceptance, 2026-10-16).
         Color::Named(named) => (COLOR_TAG_NAMED << COLOR_TAG_SHIFT) | (named as u32),
@@ -211,8 +212,9 @@ mod tests {
         assert_eq!(payload(NamedColor::DimBlack), 259);
         assert_eq!(payload(NamedColor::DimWhite), 266);
         assert_eq!(payload(NamedColor::BrightForeground), 267);
+        // `DimForeground` (268) is the last variant in vte 0.15 — the enum ends
+        // there, so the payload never needs more than 9 bits.
         assert_eq!(payload(NamedColor::DimForeground), 268);
-        assert_eq!(payload(NamedColor::DimBackground), 269);
 
         // The specific collision that shipped: background must not read as red.
         assert_ne!(

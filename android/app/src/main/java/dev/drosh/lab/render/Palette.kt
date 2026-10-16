@@ -47,7 +47,8 @@ internal object Palette {
         index in 259..266 -> dim(ANSI[index - 259])
         index == 267 -> ANSI[15]
         index == 268 -> dim(DEFAULT_FOREGROUND)
-        index == 269 -> dim(DEFAULT_BACKGROUND)
+        // vte 0.15 ends the enum at `DimForeground` (268); anything else means
+        // the engine moved and the mapping has to be re-read from its source.
         else -> defaultColor
     }
 
