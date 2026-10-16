@@ -1,0 +1,122 @@
+package dev.drosh.lab.core
+
+/**
+ * JNI surface of `libdrosh_core.so`.
+ *
+ * Every numeric value is mirrored from the Rust side (`rust/core/src/ffi/`,
+ * `bridge/cell.rs`, `bridge/snapshot.rs`) — both sides change together. Nothing
+ * throws across the boundary: a function returns either an `ErrorCode` or a
+ * handle (`> 0`).
+ *
+ * The declarations follow the pattern Termi runs on device (`object` +
+ * `external fun`, no `@JvmStatic`); the Rust side ignores the receiver
+ * argument.
+ */
+internal object NativeCore {
+
+    init {
+        // Cargo turns the crate name `drosh-core` into `libdrosh_core.so`.
+        System.loadLibrary("drosh_core")
+    }
+
+    // --- error codes (ffi::ErrorCode) ---
+    const val OK = 0
+    const val INVALID_HANDLE = -1
+    const val TOO_MANY_SESSIONS = -2
+    const val SPAWN_FAILED = -3
+    const val INVALID_ARGUMENT = -4
+    const val IO_ERROR = -5
+    const val INTERNAL = -6
+    const val BUFFER_TOO_SMALL = -7
+    const val NOT_SUPPORTED = -8
+
+    // --- cell record (bridge::cell), 16 bytes little-endian ---
+    const val CELL_BYTES = 16
+    const val CELL_OFFSET_CODEPOINT = 0
+    const val CELL_OFFSET_FG = 4
+    const val CELL_OFFSET_BG = 8
+    const val CELL_OFFSET_FLAGS = 12
+
+    const val COLOR_TAG_NAMED = 0
+    const val COLOR_TAG_INDEXED = 1
+    const val COLOR_TAG_SPEC = 2
+    const val COLOR_TAG_SHIFT = 30
+    const val COLOR_VALUE_MASK = 0x00ffffff
+
+    const val FLAG_INVERSE = 1 shl 0
+    const val FLAG_BOLD = 1 shl 1
+    const val FLAG_ITALIC = 1 shl 2
+    const val FLAG_UNDERLINE = 1 shl 3
+    const val FLAG_STRIKEOUT = 1 shl 4
+    const val FLAG_DIM = 1 shl 5
+    const val FLAG_HIDDEN = 1 shl 6
+    const val FLAG_WIDE_CHAR = 1 shl 7
+    const val FLAG_WIDE_CHAR_SPACER = 1 shl 8
+    const val FLAG_LEADING_WIDE_CHAR_SPACER = 1 shl 9
+    const val FLAG_WRAPLINE = 1 shl 10
+    const val FLAG_DOUBLE_UNDERLINE = 1 shl 11
+    const val FLAG_UNDERCURL = 1 shl 12
+    const val FLAG_DOTTED_UNDERLINE = 1 shl 13
+    const val FLAG_DASHED_UNDERLINE = 1 shl 14
+    const val FLAG_ANY_UNDERLINE = FLAG_UNDERLINE or FLAG_DOUBLE_UNDERLINE or FLAG_UNDERCURL or
+        FLAG_DOTTED_UNDERLINE or FLAG_DASHED_UNDERLINE
+
+    // --- state array (bridge::snapshot::state_index) ---
+    const val STATE_LEN = 8
+    const val STATE_COLUMNS = 0
+    const val STATE_ROWS = 1
+    const val STATE_CURSOR_ROW = 2
+    const val STATE_CURSOR_COL = 3
+    const val STATE_CURSOR_SHAPE = 4
+    const val STATE_DISPLAY_OFFSET = 5
+    const val STATE_MODE_BITS = 6
+
+    const val CURSOR_BLOCK = 0
+    const val CURSOR_UNDERLINE = 1
+    const val CURSOR_BEAM = 2
+    const val CURSOR_HOLLOW = 3
+    const val CURSOR_HIDDEN = 4
+
+    // --- damage list (bridge::snapshot) ---
+    const val DAMAGE_FULL = -1
+    const val DAMAGE_STRIDE = 3
+
+    fun damageLength(rows: Int): Int = 1 + DAMAGE_STRIDE * rows
+
+    // --- native methods (ffi::session, ffi::snapshot, ffi::events) ---
+
+    external fun nativeVersion(): String
+
+    external fun nativeCreateSession(
+        columns: Int,
+        rows: Int,
+        cellWidth: Int,
+        cellHeight: Int,
+        program: String,
+        args: String,
+        env: String,
+        cwd: String?,
+    ): Long
+
+    external fun nativeCloseSession(id: Long): Int
+
+    external fun nativeWrite(id: Long, data: ByteArray): Int
+
+    external fun nativeResize(
+        id: Long,
+        columns: Int,
+        rows: Int,
+        cellWidth: Int,
+        cellHeight: Int,
+    ): Int
+
+    external fun nativeScroll(id: Long, delta: Int): Int
+
+    external fun nativeSnapshot(id: Long, cells: java.nio.ByteBuffer, damageOut: IntArray): Int
+
+    external fun nativeState(id: Long, stateOut: IntArray): Int
+
+    external fun nativePollWakeup(id: Long): Boolean
+
+    external fun nativeDrainEvents(id: Long): String
+}

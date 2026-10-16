@@ -75,11 +75,36 @@ session. (Details: PLAN.md §7-Phase A)
 - [x] `core/src/util/*`: logging (no extra dependency)
 
 ### Kotlin thin shell
-- [ ] `android/app/`: MainActivity + SurfaceView (EGL host) + JNI bindings
+- [x] `android/app/`: MainActivity + SurfaceView (EGL host) + JNI bindings
       (mirror `ErrorCode`, the cell record and the event records from
       `bridge/`)
-- [ ] Snapshot read + minimal line drawing (plain text drawing is fine; the
+- [x] Snapshot read + minimal line drawing (plain text drawing is fine; the
       goal is proving the data path end to end)
+- [x] **CI green (2026-10-16)**, run
+      <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38870912218>:
+      `:app:compileDebugKotlin` (Kotlin 2.4.0), `assembleDebug`, and with it the
+      whole Android job — SDK setup, NDK install, the arm64-v8a core build, and
+      the APK content assertion.
+- [x] The Rust core reaches the APK: CI links `libdrosh_core.so` (662,736
+      bytes, release/LTO/strip/panic=abort) with the pinned NDK
+      `28.2.13676358`, copies it into `src/main/jniLibs/arm64-v8a/` and fails
+      the run unless `unzip -l` shows `lib/arm64-v8a/libdrosh_core.so` in it —
+      an APK without the .so would otherwise only fail on the device. The
+      `debug-apk` artifact is 1,257,538 bytes.
+- What the shell does today (all of it Phase A scope, no quality work):
+  - `render/`: GL ES 3.0, one interleaved vertex buffer and one draw call per
+    frame; glyph quads from an ASCII atlas baked once from the monospace
+    typeface; solid quads for non-default backgrounds, underlines, strikeout
+    and all cursor shapes; fake-bold by a one-pixel second pass.
+  - `core/`: the handle plus the buffers Kotlin owns (D5) — `nativeSnapshot`
+    is called on every frame, so the buffer is always current even though the
+    renderer ignores the damage list.
+  - `input/`: an invisible text editor (`BaseInputConnection`) that sends
+    committed text and DEL; Enter/backspace work from the soft keyboard.
+  - MainActivity: wakeup-flag polling every 32 ms, cursor blink every 500 ms,
+    drag scrolls the scrollback, tap opens the keyboard, and GL/session
+    failures surface as toasts (so a device test can be diagnosed without
+    adb).
 
 ### Tests
 - [x] `tests/session_tests.rs`: host `/bin/sh` echo + `stty size` (PTY winsize)
@@ -94,8 +119,11 @@ session. (Details: PLAN.md §7-Phase A)
       with a real PTY). The Android cross-check compiling *and* passing clippy
       is the important half: the engine, our PTY code and the JNI layer all
       build for `aarch64-linux-android`.
-- [ ] Still unverified: anything that needs a device — the JNI binding shape
-      (`NativeCore` static methods) and the Kotlin shell are not written yet
+- [ ] Still unverified: anything that needs a device. The JNI binding shape is
+      written (`object NativeCore` + `external fun`, the pattern Termi runs on
+      device; the Rust side ignores the receiver), and CI proves the `.so` is
+      inside the APK — a device run has to confirm that `System.loadLibrary`
+      finds it and that the grid actually paints.
 
 ### Phase A open items (recorded, not silently dropped)
 - [ ] Evented event keys: `alacritty_terminal`'s `PTY_READ_WRITE_TOKEN` (0) and
@@ -108,12 +136,37 @@ session. (Details: PLAN.md §7-Phase A)
       + clipboard bridge).
 - [ ] Zerowidth (combining) characters are not in the cell record yet; Phase B
       shapes text in Rust and adds a glyph reference.
+- [ ] The Kotlin mirror has no tests of its own: the frozen values (error
+      codes, cell offsets, colour tags, flag bits, state indices) are guarded
+      by the Rust-side frozen-value test plus review. A JVM unit test asserting
+      the same table would catch drift on the Kotlin side.
+- [ ] The atlas is ASCII-only (the D4 stand-in): every other codepoint renders
+      as `?`, and a wide character occupies two cells without being shaped.
+      Phase B (Gate 2) replaces the source of the bitmap, not the interface.
+- [ ] The renderer redraws the whole grid every frame; the damage list is
+      filled by the bridge but unused until Phase B's damage-limited loop.
+- [ ] `color_query` (OSC 4/10/11) answers still have no owner: the palette
+      lives in Kotlin, so the reply belongs there (Phase B, with the encoder).
+- [ ] `PS1="$ "` is passed through the environment so the prompt is visible
+      without relying on mksh's rc files; Phase C's guest shell takes over.
+- [ ] Cursor blink is a fixed 500 ms toggle and the poll interval is a fixed
+      32 ms — no config (D12), no Choreographer (Phase B).
 - [ ] Device acceptance below needs a physical device and the CI-built APK.
 
 ### Acceptance
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
-      renders from the snapshot — device + kernel recorded here
+      renders from the snapshot — device + kernel recorded here.
+      The APK is the `debug-apk` artifact of run 38870912218:
+      `gh run download 38870912218 -n debug-apk` (or the run page in a
+      browser) → unzip → `adb install app-debug.apk`, or copy it to the device
+      and open it (it is debug-signed, so "install unknown apps" must be
+      allowed for the file manager). If something looks wrong,
+      `adb logcat -s DroshLab` matters: the app logs the core version, the
+      grid size, `GL_VERSION` and every failure, and shows a toast for each
+      failure.
 - [x] `cargo test` green in CI (27 tests, run 38815576100)
+- [x] `assembleDebug` green in CI and the APK carries `libdrosh_core.so`
+      (run 38870912218)
 - [x] Gate 1 passed in CI
 
 ## Phase B — Renderer + input (~2 weeks)

@@ -14,3 +14,9 @@ cell buffer + per-line damage list) and **glyph bitmaps** coming from Rust.
 
 **Rules:** zero allocation in the render loop. Details:
 [`../../PLAN.md`](../../PLAN.md) §6.
+
+**Phase A:** the code that exists today is `TerminalRenderer` + `AsciiAtlas` +
+`Palette` in `android/app/src/main/java/dev/drosh/lab/render/` — one vertex
+buffer, one draw call, an Android-baked ASCII atlas standing in for D4's Rust
+font stack, and no damage limit yet. The components above are what Phase B
+turns that into; the split into this module happens then.

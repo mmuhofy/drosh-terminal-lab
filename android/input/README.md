@@ -14,3 +14,9 @@ Turns touch and keyboard input into bytes the terminal understands.
 
 Note: the soft-keyboard mapping is written here for the first time —
 DroshKeyboard integration happens in the Drosh integration phase.
+
+**Phase A:** what exists today is
+`android/app/src/main/java/dev/drosh/lab/input/TerminalInputView.kt` — an
+invisible text editor whose input connection sends committed text, backspace
+(0x7f) and Enter. No escape sequences and no extra-keys row yet, so Ctrl/arrow
+keys wait for Phase B, where this whole directory is implemented.

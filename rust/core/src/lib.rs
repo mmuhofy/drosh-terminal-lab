@@ -49,7 +49,7 @@ fn install_panic_hook() {
 /// Version of the loaded core.
 ///
 /// The Kotlin side compares it against the version it was built against, so a
-/// stale `libdrosh-core.so` is visible immediately instead of showing up as a
+/// stale `libdrosh_core.so` is visible immediately instead of showing up as a
 /// mysterious JNI error later.
 #[no_mangle]
 pub extern "system" fn Java_dev_drosh_lab_core_NativeCore_nativeVersion<'local>(

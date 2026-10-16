@@ -24,6 +24,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   resize (`stty size`) and child exit codes (`tests/session_tests.rs`).
 - `rust/rustfmt.toml` — stable options only, matching the density alacritty
   formats with.
+- Phase A Kotlin thin shell (`android/app`): the prototype now runs a real
+  `/system/bin/sh` session on a device-ready APK.
+  - `core/`: the JNI surface plus the frozen mirrors of the Rust wire formats
+    (error codes, 16-byte cell records, colour tags, flag bits, state array,
+    damage list) and a session wrapper that allocates the buffers Kotlin owns
+    (D5) and reallocates them on resize.
+  - `render/`: GL ES 3.0 (D3) — a coverage atlas baked once from the monospace
+    typeface, one interleaved vertex buffer per frame, one draw call; glyphs,
+    backgrounds, underlines, strikeout and all cursor shapes; alacritty's
+    palette (16 ANSI colours, primary fg/bg, `DIM_FACTOR`, cube/gray ramp read
+    from its source).
+  - `input/`: an invisible text editor whose `BaseInputConnection` sends
+    committed text and DEL, so the soft keyboard types into the terminal.
+  - `MainActivity`: wakeup-flag polling (32 ms), cursor blink (500 ms), drag to
+    scroll the scrollback, tap to open the keyboard, and toasts for GL and
+    session failures.
+  - The Phase A glyph source is an Android-baked ASCII atlas standing in for
+    D4's Rust font stack (Phase B, Gate 2); the atlas interface it fills is the
+    one the Rust rasterizer will fill.
 
 ### Changed
 
@@ -34,6 +53,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   spawns the child itself.
 - The cell record is 16 bytes (codepoint, tagged fg/bg, frozen flag bits,
   reserved); the sketch in `PLAN.md` §5 could not carry colours.
+- The core library is `libdrosh_core.so`, not `libdrosh-core.so`: Cargo turns
+  the hyphen in the crate name into an underscore, so `System.loadLibrary` asks
+  for `drosh_core`. `PLAN.md` §4 and the README were corrected.
+- CI links the core with the pinned NDK toolchain (`CC_aarch64_linux_android` +
+  `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`, NDK `28.2.13676358`) instead of
+  cargo-ndk, which aborts because the runner image pre-sets its own
+  `ANDROID_NDK*` variables. The Android job now also asserts that
+  `lib/arm64-v8a/libdrosh_core.so` is inside the built APK.
+- `.gitignore`: `android/app/src/main/jniLibs/` is ignored as a whole — the
+  previous rule would have let a built `.so` be committed.
 
 ## [0.1.0] - 2026-10-16
 
