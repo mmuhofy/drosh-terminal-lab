@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Host tests: grid → buffer correctness, damage boundaries and resize behaviour
   (`tests/snapshot_tests.rs`); a real PTY session covering shell output, PTY
   resize (`stty size`) and child exit codes (`tests/session_tests.rs`).
+- `IUTF8` on the PTY line discipline (`pty_factory.rs`): bionic leaves it unset,
+  so backspace erased one byte of a multibyte character instead of the whole
+  character. Now set on the master (as alacritty does for the desktop), with a
+  host test that reads it back through `stty -g` inside the session.
 - `rust/rustfmt.toml` — stable options only, matching the density alacritty
   formats with.
 - Phase A Kotlin thin shell (`android/app`): the prototype now runs a real
@@ -63,6 +67,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `lib/arm64-v8a/libdrosh_core.so` is inside the built APK.
 - `.gitignore`: `android/app/src/main/jniLibs/` is ignored as a whole — the
   previous rule would have let a built `.so` be committed.
+- The device-test APK is published as a release asset (pre-release
+  `phase-a-device-test`) on top of the CI artifact: artifact downloads on the
+  run page need an authenticated session, a release asset does not. CI still
+  builds the artifact, and the release carries the APK's SHA-256.
 
 ## [0.1.0] - 2026-10-16
 

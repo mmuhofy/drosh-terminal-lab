@@ -16,13 +16,15 @@ the verification.** PTY + `alacritty_terminal` + the snapshot bridge live in
 3.0 with keyboard input. What is left in Phase A is **device acceptance**: the
 CI-built APK has to be installed on a real device and show `echo hello` / `ls`.
 
-Device test recipe: open the latest green run of
-[CI](https://github.com/mmuhofy/drosh-terminal-lab/actions/workflows/ci.yml),
-download the `debug-apk` artifact, unzip it, install `app-debug.apk` on the
+Device test recipe: download the APK from the
+[`phase-a-device-test` pre-release](https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test)
+(a release asset — the CI artifact download on the run page needs an
+authenticated session), `adb install app-debug.apk` or open the file on the
 device (debug-signed — allow "install unknown apps" for the file manager), tap
-the terminal, and type a command. If something misbehaves, `adb logcat -s
-DroshLab` shows the core version, the grid size, `GL_VERSION` and every
-failure; the same failures also appear as toasts.
+the terminal, and type a command. CI still builds the offline artifact; the
+release is published from it, hash included. If something misbehaves, `adb
+logcat -s DroshLab` shows the core version, the grid size, `GL_VERSION` and
+every failure; the same failures also appear as toasts.
 
 The documents:
 
