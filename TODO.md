@@ -166,9 +166,9 @@ session. (Details: PLAN.md §7-Phase A)
 - [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
       renders from the snapshot — device + kernel recorded here.
       The APK is attached to the `phase-a-device-test` pre-release
-      (<https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test>),
-      built from run 38870912218: 1,265,279 bytes, SHA-256
-      `c1781a6be48de99282fd17658a1b52ddd35ab633b63f59560b4c54f631157217`.
+      (<https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test>);
+      the release body names the commit, the CI run and the APK's SHA-256, so
+      the hash lives with the binary instead of drifting from it.
       `adb install app-debug.apk`, or copy it to the device and open it (it is
       debug-signed, so "install unknown apps" must be allowed for the file
       manager). The artifact on the run page needs an authenticated session;
