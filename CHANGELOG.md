@@ -65,15 +65,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The frame timing in the status line is split into **pump / build / draw**: the
+  first device numbers (`p50 114 ms`) could not be attributed, and the snapshot
+  call also waits for the grid lock while the parser is busy, so the phases have
+  to be visible separately.
+- The renderer no longer pads a row's slot with degenerate quads: a row records
+  how many quads it produced and `draw` submits that prefix with one
+  `glDrawArrays` per row. The first device build wrote (and paid for) roughly
+  four wasted quads per drawn one.
 - The layout is a vertical column: the GL surface takes everything above the
   extra-keys row, so the grid is told about a smaller surface instead of drawing
   underneath the buttons. The row itself scrolls sideways, because it is meant to
   grow.
 - The renderer is damage-limited: every grid row owns a fixed slot in the vertex
   buffer, a frame rebuilds only the rows the engine reported (plus the cursor's
-  row) and uploads them with `glBufferSubData`, and unused slots hold degenerate
-  quads that rasterise nothing. The 32 ms `Handler` poll is gone: a
-  Choreographer-driven `FrameLoop` checks the engine's wakeup flag once per
+  row) and uploads them with `glBufferSubData`. The 32 ms `Handler` poll is gone:
+  a Choreographer-driven `FrameLoop` checks the engine's wakeup flag once per
   vsync, which also makes the cursor blink cheap (one row).
 
 ## [0.2.0] - 2026-10-16

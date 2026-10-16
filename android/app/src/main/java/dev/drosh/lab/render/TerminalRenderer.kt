@@ -71,9 +71,11 @@ internal class TerminalRenderer(
     private var columns = 0
     private var rows = 0
 
-    // Slot layout: each row owns `floatsPerRow` floats.
+    // Slot layout: each row owns a fixed stride of `floatsPerRow` floats, and
+    // `usedQuads[row]` says how much of it is real geometry to draw.
     private var rowSlotQuads = 0
     private var floatsPerRow = 0
+    private var usedQuads = IntArray(0)
     /** The next frame rebuilds every row (first frame, resize, scroll). */
     private var fullRebuild = true
 
@@ -142,6 +144,7 @@ internal class TerminalRenderer(
         // Everything that can bail out has bailed out: from here the damage is
         // consumed, so the frame has to be drawn.
         val damage = session.pump()
+        val pumpEndNanos = System.nanoTime()
         if (damage == NativeCore.INVALID_HANDLE) {
             return
         }
@@ -195,11 +198,13 @@ internal class TerminalRenderer(
 
         lastCursorRow = cursorRow
         lastCursorVisible = cursorVisible
-        draw(rows * rowSlotQuads * QUAD_VERTICES)
 
-        // CPU-side work for this frame: build + upload + submit. GPU time would
-        // need timer queries, which are out of scope for the prototype.
-        stats.record(startedNanos, System.nanoTime())
+        val buildEndNanos = System.nanoTime()
+        draw()
+
+        // CPU-side work per phase: snapshot, build + upload, submit. GPU time
+        // would need timer queries, which are out of scope for the prototype.
+        stats.record(startedNanos, pumpEndNanos, buildEndNanos, System.nanoTime())
 
         if (cursorShape == NativeCore.CURSOR_HIDDEN) {
             lastCursorRow = -1
@@ -340,18 +345,15 @@ internal class TerminalRenderer(
             }
         }
 
-        // Pad the rest of the slot with degenerate quads: zero area, so they
-        // rasterise nothing and the row keeps its fixed stride.
+        // Pad the rest of the slot with nothing: the row records how many quads
+        // it actually produced and `draw` only submits that prefix, so the
+        // padding the first device build wrote (and paid for) is gone.
         var used = (floats.position() - base) / FLOATS_PER_QUAD
         if (used > rowSlotQuads) {
             Log.e(TAG, "row $row used $used quads, slot holds $rowSlotQuads")
             used = rowSlotQuads
         }
-        while (used < rowSlotQuads) {
-            addDegenerateQuad(floats)
-            used += 1
-        }
-
+        usedQuads[row] = used
         floats.limit(floats.capacity())
     }
 
@@ -375,20 +377,35 @@ internal class TerminalRenderer(
     }
 
     private fun uploadRow(floats: FloatBuffer, row: Int) {
+        val used = usedQuads[row]
+        if (used <= 0) {
+            return
+        }
+
+        val floatsToUpload = used * FLOATS_PER_QUAD
         floats.position(row * floatsPerRow)
-        floats.limit(row * floatsPerRow + floatsPerRow)
+        floats.limit(row * floatsPerRow + floatsToUpload)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vertexBuffer)
         GLES20.glBufferSubData(
             GLES20.GL_ARRAY_BUFFER,
             row * floatsPerRow * FLOAT_BYTES,
-            floatsPerRow * FLOAT_BYTES,
+            floatsToUpload * FLOAT_BYTES,
             floats,
         )
         floats.limit(floats.capacity())
     }
 
-    private fun draw(vertexCount: Int) {
-        if (vertexCount == 0) {
+    /**
+     * Submit the rows.
+     *
+     * One `glDrawArrays` per row, each over its used prefix: a single call would
+     * need either degenerate padding (what the first device build paid for) or a
+     * compacted buffer (which would have to move rows on every damage). A row is
+     * one call, and a full-screen damage burst is a few dozen — cheap next to
+     * building them.
+     */
+    private fun draw() {
+        if (rows == 0) {
             return
         }
 
@@ -408,7 +425,17 @@ internal class TerminalRenderer(
         GLES20.glEnableVertexAttribArray(ATTRIB_COLOR)
         GLES20.glVertexAttribPointer(ATTRIB_COLOR, 4, GLES20.GL_FLOAT, false, stride, 4 * FLOAT_BYTES)
 
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, vertexCount)
+        val quadsPerRow = rowSlotQuads
+        for (row in 0 until rows) {
+            val used = usedQuads[row]
+            if (used > 0) {
+                GLES20.glDrawArrays(
+                    GLES20.GL_TRIANGLES,
+                    row * quadsPerRow * QUAD_VERTICES,
+                    used * QUAD_VERTICES,
+                )
+            }
+        }
 
         GLES20.glDisableVertexAttribArray(ATTRIB_POSITION)
         GLES20.glDisableVertexAttribArray(ATTRIB_TEX_COORD)
@@ -468,13 +495,6 @@ internal class TerminalRenderer(
         vertex(floats, left, bottom, uLeft, vBottom, red, green, blue)
     }
 
-    /** A quad whose six vertices coincide: nothing to rasterise. */
-    private fun addDegenerateQuad(floats: FloatBuffer) {
-        repeat(QUAD_VERTICES) {
-            vertex(floats, 0f, 0f, atlas.solidU, atlas.solidV, 0f, 0f, 0f)
-        }
-    }
-
     private fun vertex(
         floats: FloatBuffer,
         x: Float,
@@ -519,6 +539,7 @@ internal class TerminalRenderer(
         cellEntries = arrayOfNulls(cells)
 
         dirtyRows = BooleanArray(newRows)
+        usedQuads = IntArray(newRows)
         fullRebuild = true
         lastCursorRow = -1
         lastCursorVisible = false

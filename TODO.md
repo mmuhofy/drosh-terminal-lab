@@ -327,17 +327,25 @@ session. (Details: PLAN.md §7-Phase A)
       in Phase C).
 
 ### Acceptance
-- [ ] **Device run (rolling `device-test` build; results land here):**
-      - record from the app's log line (`adb logcat -s DroshLab`): core version,
-        grid size (`NxM` cells of `WxH` px), font metrics (cell size, ascent) and
-        `GL_VERSION` — these are the Phase B device record
-      - glyphs are JetBrains Mono NL (same cell size as the Phase A build? it is
-        now the font's own metric, so it may differ — record both)
-      - bold is a real bold face; underlined/struck-out text renders
-      - `Tab` completion, `Ctrl`+`c`/`l`/`d`, `↑` history, arrows in `vi`/`top`
-        (application mode)
-      - long-press word select → drag → `Copy`; `Paste` of a multi-line
-        clipboard entry arrives as one bracketed paste
+- [ ] **Device run 1 (2026-10-16, commit `64db7e2`, Android 15, kernel
+      `6.6.30-android15-8-g6b55ce738535-4k`, `GL ES 3.2`):**
+      - log: `font: cell 12.33x27.126px at 20.55px (density 1.7125, ascent
+        20.961)`, `core 0.1.0 session 1: 58x55 cells of 12x27px`,
+        `GL version: OpenGL ES 3.2 v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`
+      - screenshot pixel read: terminal `#181818`, stats strip `#151515`, key
+        buttons `#2a2a2a` — palette and layout as designed; glyphs upright and
+        legible, prompt and block cursor correct
+      - **frame numbers: p50 114.0 ms, p99 114.0 ms, 115 janky / 129**, measured
+        while `yes` saturated the PTY. The target (`p99 < 8 ms`) is missed by an
+        order of magnitude, and the number is **not yet attributed**: the frame
+        includes the snapshot call, which can wait on the grid lock while the
+        parser runs, and the row-slot padding made every row cost a full
+        `columns * 5` quads. The next build splits the timing (pump / build /
+        draw) and stops padding slots it does not draw.
+      - still to test: Tab/Ctrl combinations, selection + copy/paste, and the
+        same numbers under a *defined* workload (a burst that does not saturate
+        the PTY, e.g. `cat` of a few MB) — the acceptance criterion needs a
+        workload, not a stress test
 - [ ] frame p99 < 8 ms — the status line shows p50/p99 while a burst runs
       (`yes | head -20000`); the first numbers go here
 - [ ] no jank under full-screen output (the same line counts janky frames)
