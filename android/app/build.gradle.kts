@@ -1,5 +1,6 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -28,6 +29,11 @@ android {
         }
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
     packaging {
         jniLibs {
             // Raw (non-.so-named) executables must exist on disk to be exec'd;
@@ -36,3 +42,6 @@ android {
         }
     }
 }
+
+// The Rust core reaches the APK through src/main/jniLibs/arm64-v8a/
+// (produced by cargo-ndk in CI; never committed — see .gitignore).

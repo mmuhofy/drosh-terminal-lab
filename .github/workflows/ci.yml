@@ -7,6 +7,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # Pinned NDK (r28c): the Rust core is linked with its clang through cargo-ndk.
+  NDK_VERSION: 28.2.13676358
 
 # All builds run here — no local Rust/Gradle builds (AGENTS.md rule 10).
 jobs:
@@ -58,10 +60,12 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Set up Android SDK
+      - name: Set up Android SDK (with NDK)
         # Manual setup: android-actions/setup-android@v3 fails because it
         # still asks sdkmanager for the removed legacy "tools" package.
         # cmdline-tools build 11076708 is a stable, long-lived download.
+        # NDK 28.2.13676358 (r28c) is pinned: the Rust core is linked with its
+        # clang through cargo-ndk, so the toolchain must not drift.
         run: |
           set -euo pipefail
           SDK_DIR="$RUNNER_TEMP/android-sdk"
@@ -71,10 +75,21 @@ jobs:
           unzip -q commandlinetools-linux-11076708_latest.zip -d "$SDK_DIR/cmdline-tools"
           mv "$SDK_DIR/cmdline-tools/cmdline-tools" "$SDK_DIR/cmdline-tools/latest"
           yes | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
-          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION"
           echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_DIR/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+      - name: Build the Rust core for arm64-v8a
+        # The APK only works with libdrosh_core.so inside it; cargo-ndk wires
+        # the NDK toolchain into the cargo build. The .so is never committed.
+        run: |
+          set -euo pipefail
+          cargo install cargo-ndk --locked
+          cd rust
+          cargo ndk -t arm64-v8a -p 26 -o ../android/app/src/main/jniLibs build --release
+          ls -l ../android/app/src/main/jniLibs/arm64-v8a/
       - name: Ensure Gradle
         # No wrapper jar is committed to git; use the runner's Gradle when
         # present, otherwise install the pinned version.
@@ -89,6 +104,14 @@ jobs:
       - name: Assemble debug APK
         working-directory: android
         run: gradle assembleDebug
+      - name: Check the APK carries the core
+        # An APK without the .so starts and dies on System.loadLibrary; fail
+        # here instead of on the device.
+        run: |
+          set -euo pipefail
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libdrosh_core.so"
+          echo "$APK contains libdrosh_core.so"
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:

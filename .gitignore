@@ -21,7 +21,9 @@ captures/
 # C/NDK
 *.o
 *.so
-!android/**/jniLibs/**/*.so
+# The Rust core for the device is built by CI (cargo-ndk) into jniLibs;
+# build products never enter git (AGENTS.md §11).
+android/app/src/main/jniLibs/
 
 # OS/editor
 *.log
