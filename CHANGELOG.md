@@ -46,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `~`-terminated keys, F1–F4 as SS3, Shift+Tab, Alt as an ESC prefix or a
   modifier parameter (`CSI 1;3D`), the C0 mapping for Ctrl+letter — plus the
   extra-keys row (sticky Ctrl, Esc, Tab, arrows) and Enter as CR rather than LF.
+- Selection and copy/paste (`input/Selection.kt`, `input/SelectionText.kt`, the
+  row's Copy/Paste buttons): long-press selects the word under the finger with
+  alacritty's own boundary set, dragging extends it, a tap clears it; the
+  highlight is the inverted cell, which is alacritty's default. Copy reads the
+  cell buffer directly, skipping wide-character spacers and trimming trailing
+  blanks; Paste wraps the clipboard in `ESC [ 200 ~ … 201 ~` when the program
+  enabled mode 2004.
 - JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2). They
   are **not** wired into CI (user decision, 2026-10-16); run them with
   `gradle testDebugUnitTest` when the encoder changes. While they were briefly
@@ -56,7 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - The layout is a vertical column: the GL surface takes everything above the
   extra-keys row, so the grid is told about a smaller surface instead of drawing
-  underneath the buttons.
+  underneath the buttons. The row itself scrolls sideways, because it is meant to
+  grow.
 - The renderer is damage-limited: every grid row owns a fixed slot in the vertex
   buffer, a frame rebuilds only the rows the engine reported (plus the cursor's
   row) and uploads them with `glBufferSubData`, and unused slots hold degenerate

@@ -299,9 +299,20 @@ session. (Details: PLAN.md §7-Phase A)
       from a hardware keyboard (the sticky Ctrl turns the first committed
       character into its C0 control code). A dedicated row button is not there
       yet — a device test decides whether it is worth the space.
-- [ ] `input/paste.kt`: bracketed paste (mode 2004)
-- [ ] `input/gestures.kt`: tap, double-tap (word), long-press (selection),
-      drag extend, pinch zoom (row anchoring), momentum scroll
+- [x] `input/paste.kt` → the row's **Paste** button: the clipboard goes in
+      wrapped in `ESC [ 200 ~ … ESC [ 201 ~` when the program asked for mode
+      2004, raw otherwise, capped at 64 KB. Plain paste never runs a multi-line
+      block line by line.
+- [x] Selection + **Copy**: long-press picks the word under the finger, dragging
+      extends the range, a tap clears it. Word boundaries are alacritty's own set
+      (`alacritty_terminal/src/term/mod.rs`, `SEMANTIC_ESCAPE_CHARS`), and the
+      highlight is the inverted cell, which is alacritty's default
+      (`InvertedCellColors`). Copy reads straight out of the cell buffer (D5),
+      skips wide-character spacers and trims trailing blanks per line.
+- [ ] `input/gestures.kt`, still open: pinch zoom (row anchoring), momentum
+      scroll, line selection (triple tap), and the *rectangular* selection mode
+      alacritty has — the prototype's is a linear range, which is what a phone
+      drag produces.
 
 ### Benchmarks
 - [ ] `bench/`: frame p50/p99 + jank counter overlay

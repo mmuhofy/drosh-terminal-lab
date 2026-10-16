@@ -227,6 +227,18 @@ is closed; the install floor will keep rising — known, accepted risk.
   `FrameLoop`: one wakeup-flag check per vsync (a cheap JNI call) with the cursor
   blink on the same clock. `glBufferSubData` per damaged row replaces the whole
   buffer upload, and the frame no longer rebuilds cells that did not change.
+- 2026-10-16: Phase B selection, phase 1. The model is a **linear (row-major)
+  range** anchored by a long press and extended by dragging: a phone drags along
+  lines, so alacritty's rectangular mode is deferred rather than half-built. Word
+  boundaries and colours are taken from alacritty instead of invented —
+  `SEMANTIC_ESCAPE_CHARS` (`,│\`|:"' ()[]{}<>\t`, defined in
+  `alacritty_terminal/src/term/mod.rs`) and the inverted cell
+  (`InvertedCellColors::default` = the primary foreground as the highlight, the
+  primary background as the text). Copying reads the cell buffer Kotlin already
+  owns (D5), so it needs no new JNI call and no copy of the grid; wide-character
+  spacers are skipped and trailing blanks trimmed per line. Paste is the row's
+  other button: `ESC [ 200 ~ … 201 ~` when the program enabled mode 2004, raw
+  otherwise, capped at 64 KB so a stray clipboard cannot flood the PTY.
 ## 4. Target architecture
 
 ```
