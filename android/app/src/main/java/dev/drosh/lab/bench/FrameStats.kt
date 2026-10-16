@@ -115,18 +115,23 @@ internal class FrameStats {
             return "no frame drawn yet"
         }
 
-        return "%s%d frames · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f draw %.1f · jank %d"
-            .format(
-                if (isFrozen) "FROZEN " else "",
-                frames,
-                slowFrames(),
-                slowShare(),
-                maxWork,
-                averagePump(),
-                averageBuild(),
-                averageDraw(),
-                longs,
-            )
+        // Locale.ROOT everywhere in this class: a device set to a comma-decimal
+        // locale (Turkish, German…) would otherwise emit `12,33`, which the
+        // reviewer cannot parse and which is not what the log lines look like on
+        // any other device.
+        return java.lang.String.format(
+            java.util.Locale.ROOT,
+            "%s%d frames · >8ms %d (%.1f%%) · max %.0f · pump %.1f build %.1f draw %.1f · jank %d",
+            if (isFrozen) "FROZEN " else "",
+            frames,
+            slowFrames(),
+            slowShare(),
+            maxWork,
+            averagePump(),
+            averageBuild(),
+            averageDraw(),
+            longs,
+        )
     }
 
     /**
@@ -134,18 +139,19 @@ internal class FrameStats {
      * cannot change under the reader's feet.
      */
     fun logLine(): String =
-        "frames=%d slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f draw=%.1f jank=%d interval_max=%.1f"
-            .format(
-                frames,
-                slowFrames(),
-                slowShare(),
-                maxWork,
-                averagePump(),
-                averageBuild(),
-                averageDraw(),
-                longs,
-                maxInterval,
-            )
+        java.lang.String.format(
+            java.util.Locale.ROOT,
+            "frames=%d slow8=%d (%.2f%%) max=%.1f pump=%.1f build=%.1f draw=%.1f jank=%d interval_max=%.1f",
+            frames,
+            slowFrames(),
+            slowShare(),
+            maxWork,
+            averagePump(),
+            averageBuild(),
+            averageDraw(),
+            longs,
+            maxInterval,
+        )
 
     private fun average(total: Float): Float = if (frames == 0) 0f else total / frames
 

@@ -60,6 +60,9 @@ class MainActivity : Activity() {
      */
     private var benchServer: BenchServer? = null
 
+    /** The log's header is written once, when the GL version is known. */
+    private var benchHeaderWritten = false
+
     /** Cell geometry from the bundled font, filled in by [loadFont]. */
     private lateinit var metrics: CellMetrics
 
@@ -92,6 +95,7 @@ class MainActivity : Activity() {
             if (!stats.isFrozen) {
                 status.text = stats.summary()
             }
+            ensureBenchHeader()
         },
     )
 
@@ -221,7 +225,6 @@ class MainActivity : Activity() {
         // bridge the device tester sets up), and the app never dials out.
         benchServer = BenchServer(java.io.File(filesDir, BENCH_FILE)) { benchInfoLine() }
         benchServer?.start()
-        appendBenchHeader()
     }
 
     override fun onResume() {
@@ -268,20 +271,37 @@ class MainActivity : Activity() {
      * record, and what `GET /info` answers.
      */
     private fun benchInfoLine(): String = buildString {
+        // Locale.ROOT: on a comma-decimal device (Turkish, German…) `%.2f` would
+        // emit `12,33`, and the numbers have to be machine-readable.
+        fun number(value: Float, pattern: String) =
+            java.lang.String.format(java.util.Locale.ROOT, pattern, value)
+
         append("device=").append(Build.MODEL)
         append(" android=").append(Build.VERSION.RELEASE)
         append(" kernel=").append(System.getProperty("os.version") ?: "?")
         append(" core=").append(if (::session.isInitialized) session.coreVersion else "?")
         append(" grid=").append(session.columns).append('x').append(session.rows)
-        append(" cell=%.2f".format(metrics.width)).append('x').append("%.2f".format(metrics.height))
-        append(" ascent=%.2f".format(metrics.ascent))
-        append(" density=%.4f".format(resources.displayMetrics.density))
+        append(" cell=").append(number(metrics.width, "%.2f")).append('x')
+            .append(number(metrics.height, "%.2f"))
+        append(" ascent=").append(number(metrics.ascent, "%.2f"))
+        append(" density=").append(number(resources.displayMetrics.density, "%.4f"))
         append(" gl=").append(if (::renderer.isInitialized) renderer.glVersion else "?")
         append(" font=").append(FONT_NAME)
     }
 
-    /** One header line per app start, so a pulled log says which build it came from. */
-    private fun appendBenchHeader() {
+    /**
+     * The header names the build a pulled log came from, so it is written once the
+     * GL version is known — not in `onCreate`, where the surface does not exist yet
+     * and the line said `gl=unknown`.
+     *
+     * Called from the frame loop's blink and before the first capture, whichever
+     * comes first; an app that never draws a frame has nothing to measure anyway.
+     */
+    private fun ensureBenchHeader() {
+        if (benchHeaderWritten || !::renderer.isInitialized || renderer.glVersion == "unknown") {
+            return
+        }
+        benchHeaderWritten = true
         val header = "# %s · %s%n".format(java.util.Date().toString(), benchInfoLine())
         try {
             java.io.File(filesDir, BENCH_FILE).appendText(header)
@@ -309,6 +329,8 @@ class MainActivity : Activity() {
             stats.reset()
             return
         }
+
+        ensureBenchHeader()
 
         val line = stats.logLine()
         Log.i(BENCH_TAG, line)
