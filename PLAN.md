@@ -166,7 +166,15 @@ is closed; the install floor will keep rising — known, accepted risk.
   Both are fixed and covered (`cargo test` on the Rust side; the Atlas change is
   device-verified by the retest). Device, Android version and kernel are
   recorded in TODO.md once the retest passes.
-
+- 2026-10-16: **Phase A acceptance passed on a physical device** (Android 15,
+  kernel `6.6.30-android15-8-g6b55ce738535-4k`, `OpenGL ES 3.2` driver string —
+  all in TODO.md): `echo hello` renders from the snapshot, with alacritty's
+  default colours verified by reading pixels out of the screenshot (`#181818`
+  background, `#d8d8d8` text). The whole path — PTY → `alacritty_terminal` →
+  snapshot bridge → GL ES → screen — is therefore proven on hardware, not only
+  in CI, and §8 item 5 (GL ES 3.0 on target devices) is verified with it.
+  Phase A is closed; what follows is quality (Phase B) and the guest runtime
+  (Phase C).
 ## 4. Target architecture
 
 ```
@@ -334,10 +342,10 @@ them (AGENTS.md rule 2):
 3. swash compiles for Android and produces color-emoji (CBDT/COLR) bitmaps —
    Phase B Gate 2; otherwise the emoji overlay path
 4. chroot-ng probe result + file-backed mode — Phase C Gate 3
-5. GL ES 3.0 available on target devices (fallback: GLES2 path). The Phase A
-   shell requests a 3.0 context (D3) and logs `GL_VERSION`; an unsupported
-   device would show a black screen plus a toast instead of glyphs. Unverified
-   until a device run.
+5. GL ES 3.0 available on target devices (fallback: GLES2 path) — **verified
+   2026-10-16 on an Android 15 device**: `OpenGL ES 3.2
+   v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`, logged by the Phase A
+   shell's `GL_VERSION` line. No GLES2 fallback path is needed for now.
 
 ## 9. Risks and Plan-B triggers
 

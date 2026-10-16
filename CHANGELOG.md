@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Nothing yet — Phase B (Rust font stack, Gate 2) starts here.
+
+## [0.2.0] - 2026-10-16
+
+**Phase A — the engine runs on Android.** `alacritty_terminal` 0.26.0 parses a
+real PTY session on a physical device and the Kotlin GL ES 3.0 shell paints it
+from the snapshot bridge.
+
+### Added
+
 - Phase A Rust core (`rust/core`): the JNI boundary (`ffi/`), the session layer
   (`session/`: PTY + engine + event loop + handle table) and the data path to
   Kotlin (`bridge/`: 16-byte cell records, damage list, event queue).
@@ -125,6 +135,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Gate 1 passed (2026-10-15):** `alacritty_terminal 0.26.0` + `jni 0.21`
   cross-compile and pass clippy for `aarch64-linux-android`
   (CI run 38807651540 on `main`).
+- **Phase A acceptance passed (2026-10-16):** the CI-built APK (commit
+  `71ceaf5`, SHA-256 `b540296c…69de`) renders `echo hello` from the snapshot on
+  an Android 15 device — kernel `6.6.30-android15-8-g6b55ce738535-4k`,
+  `OpenGL ES 3.2` driver. Background `#181818` and text `#d8d8d8` were read out
+  of the screenshot's pixels, so the palette, the atlas orientation and the
+  cell metrics are all confirmed against the engine's data.
+- CI green on that merge (`main`, run 38876185265): 28 Rust tests, the
+  aarch64-linux-android cross-check, and `assembleDebug` plus the APK content
+  assertion.
 
-[Unreleased]: https://github.com/mmuhofy/drosh-terminal-lab/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mmuhofy/drosh-terminal-lab/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/v0.2.0
 [0.1.0]: https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/v0.1.0

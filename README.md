@@ -10,11 +10,15 @@ Android, with measurements. Once proven, the core moves into Drosh as a module.
 
 ## Status
 
-🚧 **Phase A — the Rust core and the Kotlin thin shell are implemented; CI is
-the verification.** PTY + `alacritty_terminal` + the snapshot bridge live in
-`rust/core` (with host tests), and `android/app` renders the snapshot on GL ES
-3.0 with keyboard input. What is left in Phase A is **device acceptance**: the
-CI-built APK has to be installed on a real device and show `echo hello` / `ls`.
+✅ **Phase A complete (2026-10-16) — the engine runs on a real device.**
+`alacritty_terminal` 0.26.0 parses a real PTY session in the CI-built APK, and
+the Kotlin GL ES 3.0 shell paints it from the zero-copy snapshot bridge:
+`echo hello` renders on an Android 15 device (kernel, GL driver string and the
+APK's hash are recorded in [`TODO.md`](TODO.md)).
+
+🚧 **Phase B in progress** — the Rust font stack (rustybuzz + swash, Gate 2),
+then the renderer work (instancing, damage-limited redraw) and the full input
+layer.
 
 Device test recipe: download the APK from the
 [`phase-a-device-test` pre-release](https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test)

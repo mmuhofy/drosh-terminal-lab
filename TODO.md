@@ -163,14 +163,25 @@ session. (Details: PLAN.md §7-Phase A)
 - [ ] Device acceptance below needs a physical device and the CI-built APK.
 
 ### Acceptance
-- [ ] On a physical device (CI-built APK artifact): `echo hello` / `ls`
-      renders from the snapshot — device + kernel recorded here.
-      **First device run (2026-10-16) failed, and that is why it exists**: the
-      grid did receive the engine's content, but every default cell was painted
-      alacritty-red and every glyph was mirrored vertically. Both defects are
-      fixed (see `CHANGELOG.md` `[Unreleased] → Fixed`); a retest with the
-      rebuilt APK is pending, and the device model, Android version and
-      `uname -a` go in this bullet.
+- [x] **On a physical device (CI-built APK): `echo hello` renders from the
+      snapshot — PASSED (2026-10-16).**
+      - Device: Android 15 phone (model not reported by the tester)
+      - Kernel: `Linux localhost 6.6.30-android15-8-g6b55ce738535-4k #1 SMP
+        PREEMPT Thu Jan 1 00:00:00 UTC 1970 aarch64 Toybox`
+      - GL: `OpenGL ES 3.2 v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`
+        (from `adb logcat -s DroshLab`) — so D3's GL ES 3.0 requirement is
+        satisfied on real hardware, with headroom
+      - APK: commit `71ceaf5`, 1,265,475 bytes, SHA-256
+        `b540296cd703bb0773d260643848bb8fe09b5ad566554c2e15637877b1ac69de`
+      - Seen: `:/data/user/0/dev.drosh.lab/files $ echo hello` → `hello` →
+        next prompt; pixel read of the screenshot gives `#181818` background and
+        `#d8d8d8` text, i.e. the palette and the atlas orientation are right
+      - **First run (2026-10-16) failed, and that is why it exists**: the grid
+        did receive the engine's content, but every default cell was painted
+        alacritty-red and every glyph was mirrored vertically. Both defects are
+        fixed in `71ceaf5` (see `CHANGELOG.md` `Fixed`).
+      - Not tested on this run: rotation, the IME shrinking the grid, the OEM
+        slave-as-stdio fallback (it was not needed).
       The APK is attached to the `phase-a-device-test` pre-release
       (<https://github.com/mmuhofy/drosh-terminal-lab/releases/tag/phase-a-device-test>);
       the release body names the commit, the CI run and the APK's SHA-256, so
