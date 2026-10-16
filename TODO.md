@@ -85,6 +85,9 @@ session. (Details: PLAN.md §7-Phase A)
       `:app:compileDebugKotlin` (Kotlin 2.4.0), `assembleDebug`, and with it the
       whole Android job — SDK setup, NDK install, the arm64-v8a core build, and
       the APK content assertion.
+- [x] Merged to `main` (squash `96d88b0`); `main` CI green on the merge, run
+      <https://github.com/mmuhofy/drosh-terminal-lab/actions/runs/38872213752>
+      — host fmt/clippy/test, Gate 1 and the Android job all passed
 - [x] The Rust core reaches the APK: CI links `libdrosh_core.so` (662,736
       bytes, release/LTO/strip/panic=abort) with the pinned NDK
       `28.2.13676358`, copies it into `src/main/jniLibs/arm64-v8a/` and fails
