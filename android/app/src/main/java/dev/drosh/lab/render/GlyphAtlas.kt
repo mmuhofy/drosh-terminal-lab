@@ -50,6 +50,10 @@ internal class GlyphAtlas(val size: Int = ATLAS_SIZE) {
         /** A 1x1 opaque texel stands in for the real coverage of solid quads. */
         const val SOLID = 1
 
+        /** The warm-up range: printable ASCII. */
+        const val FIRST_PRINTABLE = 32
+        const val LAST_PRINTABLE = 126
+
         const val INITIAL_SCRATCH_BYTES = 4096
 
         /** Key layout: codepoint (32) | bold (1) | pixel size bits (31). */
@@ -131,6 +135,24 @@ internal class GlyphAtlas(val size: Int = ATLAS_SIZE) {
         val entry = rasterize(codepoint, bold, px)
         entries[key] = entry
         return entry
+    }
+
+    /**
+     * Rasterise the printable ASCII range up front.
+     *
+     * Without this, a burst that introduces new characters pays for each one on
+     * the frame it appears: one JNI rasterisation per codepoint *and* a full
+     * atlas re-upload, which a device run measured as a 120 ms frame (TODO.md,
+     * device run 2 — `pump` was fine, `build` was 13.3 ms on average). ASCII is
+     * what a shell spends its time printing, so it is the set worth having ready;
+     * rarer codepoints still rasterise on demand.
+     *
+     * Called from the GL thread once the context exists.
+     */
+    fun warmUp(px: Float, bold: Boolean) {
+        for (codepoint in FIRST_PRINTABLE..LAST_PRINTABLE) {
+            glyph(codepoint, bold, px)
+        }
     }
 
     private fun rasterize(codepoint: Int, bold: Boolean, px: Float): GlyphEntry {
