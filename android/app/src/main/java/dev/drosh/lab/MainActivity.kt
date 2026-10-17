@@ -8,9 +8,11 @@ import android.graphics.Typeface
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.util.Log
 import android.util.TypedValue
 import android.view.GestureDetector
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
@@ -29,13 +31,16 @@ import dev.drosh.lab.guest.Rootfs
 import dev.drosh.lab.input.AndroidKeys
 import dev.drosh.lab.input.Encoder
 import dev.drosh.lab.input.ExtraKeysView
+import dev.drosh.lab.input.Mouse
 import dev.drosh.lab.input.Selection
 import dev.drosh.lab.input.SelectionText
 import dev.drosh.lab.input.TerminalInputView
 import dev.drosh.lab.render.CellMetrics
 import dev.drosh.lab.render.FrameLoop
 import dev.drosh.lab.render.GlyphAtlas
+import dev.drosh.lab.render.Palette
 import dev.drosh.lab.render.TerminalRenderer
+import kotlin.math.abs
 
 /**
  * Phase A thin shell: one shell session, a GL surface fed by the snapshot
@@ -74,6 +79,10 @@ class MainActivity : Activity() {
     /** The current selection; long-press selects a word, dragging extends it. */
     private val selection = Selection()
     private var draggingSelection = false
+
+    /** Last cell a real pointer reported, so motion is sent per cell, not per pixel. */
+    private var lastMouseColumn = -1
+    private var lastMouseLine = -1
 
     /**
      * The frame pump: the engine's wakeup flag is polled once per vsync instead
@@ -219,6 +228,7 @@ class MainActivity : Activity() {
         setContentView(column)
 
         surface.setOnTouchListener(gestureListener())
+        surface.setOnGenericMotionListener { _, event -> handleScrollWheel(event) }
 
         startSession()
 
@@ -244,6 +254,21 @@ class MainActivity : Activity() {
             surface.onPause()
         }
         super.onPause()
+    }
+
+    /**
+     * Focus reporting (mode `?1004`): the application is told when the window
+     * gains or loses focus, exactly as alacritty does in `on_focus_change`.
+     */
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!::session.isInitialized || !session.isAlive) {
+            return
+        }
+        if (modes() and NativeCore.MODE_FOCUS_IN_OUT == 0) {
+            return
+        }
+        session.write(if (hasFocus) FOCUS_IN else FOCUS_OUT)
     }
 
     override fun onDestroy() {
@@ -436,14 +461,15 @@ class MainActivity : Activity() {
         return false
     }
 
+    /** The terminal mode bits of the live session (0 when there is none). */
+    private fun modes(): Int =
+        if (session.isAlive) session.stateArray[NativeCore.STATE_MODE_BITS] else 0
+
     /** DECCKM: full-screen programs ask for the `ESC O` cursor keys. */
-    private fun appCursor(): Boolean {
-        if (!session.isAlive) {
-            return false
-        }
-        val modes = session.stateArray[NativeCore.STATE_MODE_BITS]
-        return modes and NativeCore.MODE_APP_CURSOR != 0
-    }
+    private fun appCursor(): Boolean = modes() and NativeCore.MODE_APP_CURSOR != 0
+
+    /** Is the application tracking the mouse (`?1000`/`?1002`/`?1003`)? */
+    private fun mouseMode(): Boolean = Mouse.active(modes())
 
     private fun gestureListener(): View.OnTouchListener {
         val detector = GestureDetector(
@@ -452,6 +478,17 @@ class MainActivity : Activity() {
                 override fun onDown(event: MotionEvent): Boolean = true
 
                 override fun onSingleTapUp(event: MotionEvent): Boolean {
+                    // With mouse tracking on, a tap is a left click — a finger
+                    // has no buttons, so this is the mobile mapping Termux uses.
+                    if (mouseMode()) {
+                        clickAt(event.x, event.y)
+                        if (!selection.isEmpty) {
+                            selection.clear()
+                            surface.requestRender()
+                        }
+                        return true
+                    }
+
                     // A tap ends the selection instead of clearing the screen.
                     if (!selection.isEmpty) {
                         selection.clear()
@@ -486,13 +523,20 @@ class MainActivity : Activity() {
                         return true
                     }
 
+                    // While the application tracks the mouse, a drag is a wheel:
+                    // xterm's 64/65 buttons. Scrolling the local history instead
+                    // would hide the program's own scrolling from it.
+                    if (mouseMode()) {
+                        wheelBy(distanceY, current.x, current.y)
+                        return true
+                    }
+
                     // Finger down (positive dy) scrolls back into the history.
                     scrollAccumulator += distanceY
                     val rowsMoved = (scrollAccumulator / metrics.height).toInt()
                     if (rowsMoved != 0) {
                         scrollAccumulator -= rowsMoved * metrics.height
-                        session.scroll(rowsMoved)
-                        surface.requestRender()
+                        scrollByRows(rowsMoved)
                     }
                     return true
                 }
@@ -503,8 +547,172 @@ class MainActivity : Activity() {
             if (event.action == MotionEvent.ACTION_UP || event.action == MotionEvent.ACTION_CANCEL) {
                 draggingSelection = false
             }
+            // A real pointer (USB/Bluetooth mouse, trackpad) is reported as it
+            // is; touch falls through to the gesture mapping above.
+            if (event.isFromSource(InputDevice.SOURCE_MOUSE) && handleMouseEvent(event)) {
+                return@OnTouchListener true
+            }
             detector.onTouchEvent(event)
         }
+    }
+
+    /** A left click at a surface position: press and release, as xterm expects. */
+    private fun clickAt(x: Float, y: Float) {
+        val bits = modes()
+        val column = cellColumn(x)
+        val line = cellRow(y)
+        Mouse.report(Mouse.BUTTON_LEFT, true, column, line, bits)?.let(session::write)
+        Mouse.report(Mouse.BUTTON_LEFT, false, column, line, bits)?.let(session::write)
+    }
+
+    /**
+     * A finger drag becomes wheel reports while the application tracks the
+     * mouse — the mobile mapping Termux uses (alacritty has no touch screen to
+     * map, and its wheel path reports 64/65 to the program in mouse mode).
+     */
+    private fun wheelBy(distanceY: Float, x: Float, y: Float) {
+        scrollAccumulator += distanceY
+        val rows = (scrollAccumulator / metrics.height).toInt()
+        if (rows == 0) {
+            return
+        }
+        scrollAccumulator -= rows * metrics.height
+
+        // Positive is the same direction as `session.scroll`: back into the
+        // history, i.e. wheel up.
+        val code = if (rows > 0) Mouse.WHEEL_UP else Mouse.WHEEL_DOWN
+        val bits = modes()
+        val column = cellColumn(x)
+        val line = cellRow(y)
+        repeat(abs(rows)) {
+            Mouse.report(code, true, column, line, bits)?.let(session::write)
+        }
+    }
+
+    /**
+     * Buttons and motion from a real pointer, when the application asked for
+     * mouse reports (alacritty's `mouse_report` path).
+     */
+    private fun handleMouseEvent(event: MotionEvent): Boolean {
+        val bits = modes()
+        if (!Mouse.active(bits)) {
+            return false
+        }
+
+        val column = cellColumn(event.x)
+        val line = cellRow(event.y)
+        // A MotionEvent carries KeyEvent's meta-state bits, not the key-event
+        // accessors (`isCtrlPressed` belongs to KeyEvent).
+        val meta = event.metaState
+        val mods = Encoder.Mods(
+            ctrl = meta and KeyEvent.META_CTRL_ON != 0,
+            alt = meta and KeyEvent.META_ALT_ON != 0,
+            shift = meta and KeyEvent.META_SHIFT_ON != 0,
+        )
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_BUTTON_PRESS -> {
+                lastMouseColumn = column
+                lastMouseLine = line
+                Mouse.report(mouseButton(event.actionButton), true, column, line, bits, mods)
+                    ?.let(session::write)
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_BUTTON_RELEASE -> {
+                lastMouseColumn = -1
+                lastMouseLine = -1
+                Mouse.report(mouseButton(event.actionButton), false, column, line, bits, mods)
+                    ?.let(session::write)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                // One report per cell, not per pixel (alacritty does the same).
+                if (column == lastMouseColumn && line == lastMouseLine) {
+                    return true
+                }
+                lastMouseColumn = column
+                lastMouseLine = line
+                motionCode(bits, event.buttonState)?.let { code ->
+                    Mouse.report(code, true, column, line, bits, mods)?.let(session::write)
+                }
+            }
+            else -> return false
+        }
+        return true
+    }
+
+    /** xterm's button numbers: left 0, middle 1, right 2. */
+    private fun mouseButton(button: Int): Int = when (button) {
+        MotionEvent.BUTTON_SECONDARY -> Mouse.BUTTON_RIGHT
+        MotionEvent.BUTTON_TERTIARY -> Mouse.BUTTON_MIDDLE
+        else -> Mouse.BUTTON_LEFT
+    }
+
+    /** Which motion code applies, or `null` when this mode reports none. */
+    private fun motionCode(bits: Int, buttons: Int): Int? = when {
+        buttons and MotionEvent.BUTTON_PRIMARY != 0 -> Mouse.MOTION_LEFT
+        buttons and MotionEvent.BUTTON_TERTIARY != 0 -> Mouse.MOTION_MIDDLE
+        buttons and MotionEvent.BUTTON_SECONDARY != 0 -> Mouse.MOTION_RIGHT
+        // 1003 reports bare motion; 1002 only reports motion while a button is down.
+        bits and NativeCore.MODE_MOUSE_MOTION != 0 -> Mouse.MOTION_NONE
+        else -> null
+    }
+
+    /**
+     * A local scrollback step, or the arrow keys `?1007` asks for in the
+     * alternate screen (alacritty's `scroll_terminal`). The sequences are SS3
+     * regardless of DECCKM, matching alacritty's bytes.
+     */
+    private fun scrollByRows(rows: Int, allowAlternate: Boolean = true) {
+        if (rows == 0) {
+            return
+        }
+
+        val bits = modes()
+        val alternate = allowAlternate &&
+            bits and NativeCore.MODE_ALT_SCREEN != 0 &&
+            bits and NativeCore.MODE_ALTERNATE_SCROLL != 0
+        if (alternate) {
+            val sequence = if (rows > 0) "\u001bOA" else "\u001bOB"
+            repeat(abs(rows)) { session.writeUtf8(sequence) }
+            return
+        }
+
+        session.scroll(rows)
+        surface.requestRender()
+    }
+
+    /**
+     * A wheel notch from a real pointer: a wheel report when the application
+     * tracks the mouse, a local scrollback step otherwise — the same split
+     * alacritty's `scroll_terminal` makes.
+     */
+    private fun handleScrollWheel(event: MotionEvent): Boolean {
+        if (event.actionMasked != MotionEvent.ACTION_SCROLL ||
+            !event.isFromSource(InputDevice.SOURCE_MOUSE)
+        ) {
+            return false
+        }
+
+        val vertical = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+        if (vertical != 0f) {
+            if (mouseMode()) {
+                val code = if (vertical > 0f) Mouse.WHEEL_UP else Mouse.WHEEL_DOWN
+                Mouse.report(code, true, cellColumn(event.x), cellRow(event.y), modes())
+                    ?.let(session::write)
+            } else {
+                // Shift bypasses `?1007`, as it does in alacritty.
+                val shift = event.metaState and KeyEvent.META_SHIFT_ON != 0
+                scrollByRows(if (vertical > 0f) 1 else -1, allowAlternate = !shift)
+            }
+        }
+
+        val horizontal = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+        if (horizontal != 0f && mouseMode()) {
+            val code = if (horizontal > 0f) Mouse.WHEEL_LEFT else Mouse.WHEEL_RIGHT
+            Mouse.report(code, true, cellColumn(event.x), cellRow(event.y), modes())
+                ?.let(session::write)
+        }
+
+        return true
     }
 
     /** The grid row under a vertical surface coordinate. */
@@ -715,9 +923,77 @@ class MainActivity : Activity() {
                 }
                 event.startsWith("title:") -> Log.i(TAG, "title ${event.removePrefix("title:")}")
                 event == "bell" -> Log.i(TAG, "bell")
+                event.startsWith("color_query:") -> answerColorQuery(event)
+                event.startsWith("clipboard_store:") -> storeClipboard(event)
+                event.startsWith("clipboard_load:") -> loadClipboard(event)
                 else -> Log.i(TAG, "event $event")
             }
         }
+    }
+
+    /**
+     * `OSC 4/10/11/12` query about a colour the engine has no override for, so
+     * the answer comes from the default palette. The reply is alacritty's own
+     * format (`dynamic_color_sequence`): every component printed twice, e.g.
+     * `\x1b]11;rgb:1818/1818/1818\x07`.
+     */
+    private fun answerColorQuery(record: String) {
+        val parts = record.split(':', limit = 4)
+        if (parts.size != 4) {
+            return
+        }
+        val index = parts[1].toIntOrNull() ?: return
+        // A cursor query is only answered when the application set it; the
+        // engine would have answered that case itself.
+        val color = Palette.colorFor(index) ?: return
+
+        val terminator = if (parts[3] == "st") "\u001b\\" else "\u0007"
+        val red = hex(color shr 16 and 0xff)
+        val green = hex(color shr 8 and 0xff)
+        val blue = hex(color and 0xff)
+        session.writeUtf8("\u001b]${parts[2]};rgb:$red$red/$green$green/$blue$blue$terminator")
+    }
+
+    private fun hex(value: Int): String = value.toString(16).padStart(2, '0')
+
+    /** `OSC 52` store: the application put text on the clipboard. */
+    private fun storeClipboard(record: String) {
+        val parts = record.split(':', limit = 3)
+        if (parts.size != 3) {
+            return
+        }
+
+        val text = try {
+            String(Base64.decode(parts[2], Base64.DEFAULT), Charsets.UTF_8)
+        } catch (error: IllegalArgumentException) {
+            Log.w(TAG, "clipboard store: payload is not base64")
+            return
+        }
+
+        // Android has one clipboard, so `c` and the selection `p` are the same
+        // store here; the distinction only exists on X11.
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText(CLIPBOARD_LABEL, text))
+    }
+
+    /** `OSC 52` load: the application asked for the clipboard. */
+    private fun loadClipboard(record: String) {
+        val parts = record.split(':', limit = 3)
+        if (parts.size != 3) {
+            return
+        }
+
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = clipboard.primaryClip
+        val text = if (clip == null || clip.itemCount == 0) {
+            ""
+        } else {
+            clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+        }
+
+        val encoded = Base64.encodeToString(text.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+        val terminator = if (parts[2] == "st") "\u001b\\" else "\u0007"
+        session.writeUtf8("\u001b]52;${parts[1]};$encoded$terminator")
     }
 
     private fun toast(message: String) {
@@ -744,6 +1020,10 @@ class MainActivity : Activity() {
 
         /** Pastes are capped: a phone clipboard is not a file transfer. */
         const val PASTE_LIMIT = 65_536
+
+        /** Focus reporting (`?1004`), as alacritty's `on_focus_change` sends it. */
+        val FOCUS_IN = "\u001b[I".toByteArray(Charsets.US_ASCII)
+        val FOCUS_OUT = "\u001b[O".toByteArray(Charsets.US_ASCII)
 
         /** The frame-stats line: readable, quiet, and its own tap target. */
         const val STATUS_COLOR = 0xff9a9a9a.toInt()

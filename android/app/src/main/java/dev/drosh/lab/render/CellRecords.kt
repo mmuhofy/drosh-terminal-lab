@@ -107,8 +107,8 @@ internal class CellRecords(columns: Int, rows: Int) {
 
                 if (selection != null && selection.contains(row, column)) {
                     // alacritty's default selection colours are the inverted cell.
-                    background = Palette.DEFAULT_FOREGROUND
-                    foreground = Palette.DEFAULT_BACKGROUND
+                    background = Palette.foreground
+                    foreground = Palette.background
                 }
 
                 val cursorHere = cursorVisible &&
@@ -116,8 +116,8 @@ internal class CellRecords(columns: Int, rows: Int) {
                     row == cursorRow &&
                     column == cursorColumn
                 if (cursorHere && cursorShape == NativeCore.CURSOR_BLOCK) {
-                    background = Palette.CURSOR
-                    foreground = Palette.DEFAULT_BACKGROUND
+                    background = Palette.cursor
+                    foreground = Palette.background
                 }
 
                 backgrounds.putInt(pack(background))
@@ -184,7 +184,7 @@ internal class CellRecords(columns: Int, rows: Int) {
                             cellHeight,
                             column,
                             row,
-                            Palette.CURSOR,
+                            Palette.cursor,
                             atlas,
                         )
                         NativeCore.CURSOR_UNDERLINE -> writeRect(
@@ -194,7 +194,7 @@ internal class CellRecords(columns: Int, rows: Int) {
                             cellHeight * 0.14f,
                             column,
                             row,
-                            Palette.CURSOR,
+                            Palette.cursor,
                             atlas,
                         )
                         NativeCore.CURSOR_HOLLOW -> writeRect(
@@ -204,7 +204,7 @@ internal class CellRecords(columns: Int, rows: Int) {
                             cellHeight * 0.1f,
                             column,
                             row,
-                            Palette.CURSOR,
+                            Palette.cursor,
                             atlas,
                         )
                     }

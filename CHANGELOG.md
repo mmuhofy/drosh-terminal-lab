@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Protocol completeness, ported from alacritty v0.17.0** (the tag whose
+  `alacritty_terminal` is exactly our pinned 0.26.0), not written from memory:
+  - **Mouse reporting** (`input/Mouse.kt`): SGR (`?1006`) and the legacy form,
+    motion 32–35, wheel 64–67, modifiers 4/8/16, the `?1005` UTF-8 coordinate
+    extension and the 223/2015 limits. `?1000/1002/1003` decide what is
+    reported. Touch keeps the Termux mapping (tap = left click, drag = wheel);
+    a real pointer reports buttons and per-cell motion. `?1007` sends
+    `ESC O A/B` in the alternate screen when the application is not tracking
+    the mouse.
+  - **Focus reporting** (`?1004`): `ESC [ I` / `ESC [ O` on window focus.
+  - **OSC 4/10/11/12**: queries are answered with alacritty's own reply format
+    and terminator; colours the application *sets* are exported from the engine
+    (`nativeColors`) and used by the renderer, so the screen and the reply
+    agree. `state[STATE_COLORS]` is a fingerprint, so the 269-entry table is
+    copied only when a colour changes.
+  - **OSC 52**: clipboard store and load, end to end.
+- `MouseTest.kt`: byte-exact tests for every mouse report form, and a Rust
+  `protocol_tests.rs` that pins the engine contract the bridge relies on (OSC 52
+  payloads, colour-query prefixes and terminators).
+- DECTCEM (`?25l`) is covered by a test: the engine resolves it into
+  `CursorShape::Hidden`, which the renderer already honours.
+- The UTF-8 mouse mode is **`?1005`** (`vte`'s `NamedPrivateMode::Utf8Mouse`);
+  an earlier draft of the docs said `?1015`, which alacritty does not handle.
+
 - Phase C groundwork: **chroot-ng is vendored** as a `git subtree` pinned at
   `12d07c1` (Apache-2.0; pin, update procedure and packaging rationale in
   `rust/chroot-ng/VENDOR.md`). A new CI job cross-builds it for aarch64 and
@@ -102,6 +126,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The Android CI job runs the JVM unit tests again**
+  (`gradle testDebugUnitTest` before `assembleDebug`). The 2026-10-16 "no
+  unit-test step" decision is reversed by user decision, because the new mouse
+  encoder is a byte-exact contract and local Gradle builds are forbidden (D13);
+  the reversal and its reason are recorded in PLAN.md.
+- **OSC 52 paste is enabled for the prototype** (`Osc52::CopyPaste` instead of
+  alacritty's `OnlyCopy`): there is no remote transport yet (D12), so nothing
+  can read the clipboard over the wire. PLAN.md §8 item 6 records the decision
+  to revisit when SSH lands.
+- The renderer takes its primary colours, cursor colour and clear colour from
+  the engine's override table when the application set them (`OSC 10/11/12`),
+  instead of always using the built-in palette.
 - The frame timing in the status line is split into **pump / build / upload /
   draw**: the first device numbers (`p50 114 ms`) could not be attributed, so the
   phases have to be visible separately. A device run then settled it (`pump

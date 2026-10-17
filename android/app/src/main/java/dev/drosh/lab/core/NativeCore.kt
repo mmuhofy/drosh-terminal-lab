@@ -70,6 +70,17 @@ internal object NativeCore {
     const val STATE_CURSOR_SHAPE = 4
     const val STATE_DISPLAY_OFFSET = 5
     const val STATE_MODE_BITS = 6
+    const val STATE_COLORS = 7
+
+    // --- dynamic colour table (ffi::colors) ---
+    /** Entries in the engine's colour table (`term::color::COUNT`). */
+    const val COLOR_COUNT = 269
+
+    /** `nativeColors` reports this for "not overridden by the application". */
+    const val COLOR_UNSET = -1
+
+    /** `NamedColor::Cursor` — a cursor query is only answered when overridden. */
+    const val COLOR_INDEX_CURSOR = 258
 
     // --- terminal modes (bridge::snapshot::mode) ---
     const val MODE_SHOW_CURSOR = 1 shl 0
@@ -86,6 +97,11 @@ internal object NativeCore {
     const val MODE_LINE_WRAP = 1 shl 11
     const val MODE_LINE_FEED_NEW_LINE = 1 shl 12
     const val MODE_ORIGIN = 1 shl 13
+    const val MODE_UTF8_MOUSE = 1 shl 14
+    const val MODE_ALTERNATE_SCROLL = 1 shl 15
+
+    /** Any mouse-tracking mode is on (`TermMode::MOUSE_MODE`). */
+    const val MODE_MOUSE_MODE = MODE_MOUSE_REPORT_CLICK or MODE_MOUSE_MOTION or MODE_MOUSE_DRAG
 
     const val CURSOR_BLOCK = 0
     const val CURSOR_UNDERLINE = 1
@@ -145,6 +161,8 @@ internal object NativeCore {
     external fun nativeSnapshot(id: Long, cells: java.nio.ByteBuffer, damageOut: IntArray): Int
 
     external fun nativeState(id: Long, stateOut: IntArray): Int
+
+    external fun nativeColors(id: Long, out: IntArray): Int
 
     external fun nativePollWakeup(id: Long): Boolean
 
