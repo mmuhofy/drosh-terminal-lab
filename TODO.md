@@ -280,9 +280,14 @@ session. (Details: PLAN.md §7-Phase A)
             (orphaning); the damage-limited row slots are gone — at ~28 bytes per
             cell a full rebuild is cheaper than the bookkeeping that avoided it,
             which is also what Ghostty does
-      - [ ] **device verification pending**: this is a rewrite of the render path;
-            the next device capture (one tap) is what decides whether it worked,
-            and `rec/f` in the line now says how much was drawn
+      - [x] **device verification (2026-10-17): a real defect, found and fixed.**
+            The record carries an *in-cell* offset and the shader adds the cell
+            origin from the grid position; the builder passed the absolute origin
+            too, so every column landed two cells to the right — which read as
+            letter-spacing between all characters (underlines, strikeout and the
+            cursor had the same doubled origin). `CellRecords` now passes
+            `entry.left` / `ascent - entry.top` and the relative rect positions.
+            The fix has not been seen on a device yet; the next run is the check.
 - [ ] If the rewrite is not enough: move the record building to Rust (the
       Plan-B discussion, now with data instead of an argument)
 - [ ] `renderer/atlas.kt`: size buckets (1x/1.5x/2x/3x) — the atlas is keyed by
@@ -503,21 +508,34 @@ session. (Details: PLAN.md §7-Phase A)
       rename → `rootfs.stamp` (version + hash, so a pin bump reinstalls). Fails
       with a message, not a stack trace, when free space is under 250 MB.
 - [x] **Tar extraction (`guest/TarExtractor.kt`)**: hand-written reader, not a
-      dependency and not `toybox tar` (an OEM could ship without it). The
-      archive was inspected rather than assumed — 3413 entries: 2562 files, 655
-      dirs, 194 symlinks, 2 hardlinks, longest path 87 bytes, no device nodes,
-      no pax headers. Exactly those four types are implemented; anything else
-      throws with the entry name. Paths are confined to the rootfs (canonical
-      parent check); symlink *targets* are not, because a rootfs legitimately
-      has absolute links.
+      dependency and not `toybox tar` (an OEM could ship without it). Inspected
+      at the **block level**: 6826 headers for 3413 entries, because every entry
+      is preceded by a pax `x` header (`./PaxHeaders/…`) carrying
+      mtime/atime/ctime. Entry types: 2562 files, 655 dirs, 194 symlinks, 2
+      hardlinks; no device nodes, no long names. The first version rejected pax
+      outright and the device said so ("pax header before './PaxHeaders/bin' is
+      not supported"); the records are parsed now and `path`/`linkpath`/`size`
+      override the header. **Lesson:** the earlier "no pax headers" claim came
+      from inspecting with Python's `tarfile`, which consumes pax headers
+      transparently — the check has to read raw blocks. Anything unsupported
+      still throws with the entry name. Paths are confined to the rootfs
+      (canonical parent check); symlink *targets* are not, because a rootfs
+      legitimately has absolute links.
 - [x] **Guest launch**: the row's **Ubuntu** button installs if needed, then
       restarts the session as `libchrootng.so --fake-id=0:0 --work-dir=/root
       <rootfs> /bin/bash -l`; the renderer keeps the same session object
       (`TerminalSession.configure`), so nothing else has to rebind. `INTERNET`
       is back in the manifest for this download alone.
-- [ ] **Guest run 1 is not done yet** — the install + launch path is written and
-      compiles in CI, but no device has run it. First run should report: install
-      stage times, then whether bash's prompt appears and `id` says uid 0.
+- [ ] **Guest run 1 (2026-10-17, APK `9771854`, Android 15):** attempted and it
+      found two bugs instead of a prompt:
+      - `guest install failed: pax header before './PaxHeaders/bin' is not
+        supported` — the extractor rejected the pax headers every entry carries.
+        Fixed; the install has to be retried (it never reached extraction).
+      - the renderer put a visible gap between every letter: the foreground
+        record's in-cell offset already contained the cell origin, and the vertex
+        shader added it again. Fixed in `CellRecords`/`TerminalRenderer`.
+      Next run should report: install stage times, then whether bash's prompt
+      appears and `id` says uid 0.
 - [ ] `/etc/resolv.conf` for the guest: ubuntu-base ships none and Android has
       no `/etc/resolv.conf`; apt/DNS needs it written from ConnectivityManager
       (Phase C fidelity, before `apt update`)

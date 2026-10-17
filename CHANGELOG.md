@@ -28,11 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   official `ubuntu-base` 24.04.5 arm64 tarball is downloaded, checked against
   Ubuntu's pinned SHA-256, extracted into a staging directory and only then
   renamed into place, with a stamp so a version bump reinstalls. The tar reader
-  is hand-written against the archive's actual contents (files, dirs, symlinks,
-  hardlinks; no pax, no long names) and refuses anything it does not understand
-  rather than skipping it. The row's **Ubuntu** button runs the install and then
-  restarts the session as `chroot-ng … <rootfs> /bin/bash -l`; `INTERNET` is
-  declared again, for this download alone.
+  is hand-written against the archive's actual block layout — one pax `x` header
+  before every entry, then files, dirs, symlinks and hardlinks; `path`,
+  `linkpath` and `size` come from the pax records when present. Anything it does
+  not understand is an error, not a skip. The row's **Ubuntu** button runs the
+  install and then restarts the session as `chroot-ng … <rootfs> /bin/bash -l`;
+  `INTERNET` is declared again, for this download alone.
 
 - Phase B groundwork: the Rust font stack (`rust/core/src/font/`) — `rustybuzz`
   shapes text, `swash` rasterises it.
@@ -122,6 +123,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   whole-buffer path when most rows are dirty; per-row slots were the previous
   design and were dropped with the instanced rewrite.
 
+### Fixed
+
+- **Every glyph after the first column was drawn one cell too far right**
+  (`render/CellRecords.kt`): the foreground record carries an *in-cell* offset,
+  and the vertex shader adds the cell origin from the record's grid position —
+  but the builder passed the absolute cell origin too, so the offset was doubled.
+  On the device this read as letter-spacing between all characters. Underlines,
+  strikeout and the cursor used the same doubled origin. Found by the first
+  device run of the instanced rewrite, which is exactly what that run was for.
+- **The rootfs install rejected pax headers** (`guest/TarExtractor.kt`): the
+  Ubuntu base tarball writes a pax `x` header before every entry, and the first
+  reader refused the type outright — `guest install failed: pax header before
+  './PaxHeaders/bin' is not supported`. The records are parsed now (`path`,
+  `linkpath`, `size` override the header; the rest is ignored). The earlier "no
+  pax headers" claim came from inspecting with Python's `tarfile`, which hides
+  them; the archive was re-inspected at the block level (6826 headers, 3413
+  entries).
+
+### Removed
+
+- The bench harness: the app-hosted HTTP endpoint (`bench/BenchServer.kt`), the
+  `INTERNET` permission it needed, the scenario/label/result scripts and the pull
+  path (user decision, 2026-10-16 — it worked, but it cost the person holding the
+  phone more than the numbers were worth; `bench/README.md` records why). What
+  stays is the frame counters and the frozen line in `DroshLabBench` logcat plus
+  `files/bench.log`.
+
 ## [0.2.0] - 2026-10-16
 
 **Phase A — the engine runs on Android.** `alacritty_terminal` 0.26.0 parses a
@@ -209,13 +237,6 @@ from the snapshot bridge.
   vertically on the device. Also found by the device test.
 
 ### Removed
-
-- The bench harness: the app-hosted HTTP endpoint (`bench/BenchServer.kt`), the
-  `INTERNET` permission it needed, the scenario/label/result scripts and the pull
-  path (user decision, 2026-10-16 — it worked, but it cost the person holding the
-  phone more than the numbers were worth; `bench/README.md` records why). What
-  stays is the frame counters and the frozen line in `DroshLabBench` logcat plus
-  `files/bench.log`.
 
 - A device screenshot that was accidentally committed with a docs change
   (`git add -A` swept it up): it is removed from the tree and
