@@ -536,8 +536,7 @@ class MainActivity : Activity() {
                     val rowsMoved = (scrollAccumulator / metrics.height).toInt()
                     if (rowsMoved != 0) {
                         scrollAccumulator -= rowsMoved * metrics.height
-                        session.scroll(rowsMoved)
-                        surface.requestRender()
+                        scrollByRows(rowsMoved)
                     }
                     return true
                 }
@@ -658,6 +657,30 @@ class MainActivity : Activity() {
     }
 
     /**
+     * A local scrollback step, or the arrow keys `?1007` asks for in the
+     * alternate screen (alacritty's `scroll_terminal`). The sequences are SS3
+     * regardless of DECCKM, matching alacritty's bytes.
+     */
+    private fun scrollByRows(rows: Int, allowAlternate: Boolean = true) {
+        if (rows == 0) {
+            return
+        }
+
+        val bits = modes()
+        val alternate = allowAlternate &&
+            bits and NativeCore.MODE_ALT_SCREEN != 0 &&
+            bits and NativeCore.MODE_ALTERNATE_SCROLL != 0
+        if (alternate) {
+            val sequence = if (rows > 0) "\u001bOA" else "\u001bOB"
+            repeat(abs(rows)) { session.writeUtf8(sequence) }
+            return
+        }
+
+        session.scroll(rows)
+        surface.requestRender()
+    }
+
+    /**
      * A wheel notch from a real pointer: a wheel report when the application
      * tracks the mouse, a local scrollback step otherwise — the same split
      * alacritty's `scroll_terminal` makes.
@@ -676,8 +699,9 @@ class MainActivity : Activity() {
                 Mouse.report(code, true, cellColumn(event.x), cellRow(event.y), modes())
                     ?.let(session::write)
             } else {
-                session.scroll(if (vertical > 0f) 1 else -1)
-                surface.requestRender()
+                // Shift bypasses `?1007`, as it does in alacritty.
+                val shift = event.metaState and KeyEvent.META_SHIFT_ON != 0
+                scrollByRows(if (vertical > 0f) 1 else -1, allowAlternate = !shift)
             }
         }
 
