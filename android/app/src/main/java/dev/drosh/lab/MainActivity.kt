@@ -602,10 +602,13 @@ class MainActivity : Activity() {
 
         val column = cellColumn(event.x)
         val line = cellRow(event.y)
+        // A MotionEvent carries KeyEvent's meta-state bits, not the key-event
+        // accessors (`isCtrlPressed` belongs to KeyEvent).
+        val meta = event.metaState
         val mods = Encoder.Mods(
-            ctrl = event.isCtrlPressed,
-            alt = event.isAltPressed,
-            shift = event.isShiftPressed,
+            ctrl = meta and KeyEvent.META_CTRL_ON != 0,
+            alt = meta and KeyEvent.META_ALT_ON != 0,
+            shift = meta and KeyEvent.META_SHIFT_ON != 0,
         )
 
         when (event.actionMasked) {

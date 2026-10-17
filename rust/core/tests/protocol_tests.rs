@@ -105,8 +105,5 @@ fn colour_queries_carry_the_prefix_the_reply_needs() {
         .expect("palette colour request");
 
     let reply = palette(Rgb { r: 0xac, g: 0x42, b: 0x42 });
-    assert_eq!(
-        parse_color_template(&reply),
-        Some(("4;1".to_owned(), Terminator::Bell))
-    );
+    assert_eq!(parse_color_template(&reply), Some(("4;1".to_owned(), Terminator::Bell)));
 }
