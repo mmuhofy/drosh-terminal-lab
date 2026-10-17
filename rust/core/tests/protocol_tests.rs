@@ -78,11 +78,13 @@ fn colour_queries_carry_the_prefix_the_reply_needs() {
     let (mut term, capture) = new_term();
 
     feed(&mut term, b"\x1b]11;?\x07");
+    // The event carries the colour *index*, not the OSC number: 11 addresses
+    // `NamedColor::Foreground` (256); the "11" lives in the reply prefix.
     let background = capture
         .take()
         .into_iter()
         .find_map(|event| match event {
-            Event::ColorRequest(11, format) => Some(format),
+            Event::ColorRequest(256, format) => Some(format),
             _ => None,
         })
         .expect("background colour request");
