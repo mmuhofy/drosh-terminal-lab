@@ -131,16 +131,18 @@ internal class CellRecords(columns: Int, rows: Int) {
                     continue
                 }
 
-                val cellX = column * cellWidth
-                val cellY = row * cellHeight
-
                 if (codepoint != ' '.code) {
                     val entry = glyphFor(cell, codepoint, bold, atlas, fontPx)
                     if (entry != null && !entry.isBlank) {
+                        // In-cell offsets only: the shader adds the cell's own
+                        // origin from the record's grid position. Passing the
+                        // cell origin here as well doubled it — every column
+                        // landed two cells to the right, which read as letter
+                        // spacing on the device.
                         writeGlyph(
                             entry,
-                            cellX + entry.left,
-                            cellY + metrics.ascent - entry.top,
+                            entry.left.toFloat(),
+                            metrics.ascent - entry.top,
                             column,
                             row,
                             foreground,
@@ -150,8 +152,8 @@ internal class CellRecords(columns: Int, rows: Int) {
 
                 if (flags and NativeCore.FLAG_ANY_UNDERLINE != 0) {
                     writeRect(
-                        cellX,
-                        cellY + metrics.ascent + metrics.underline,
+                        0f,
+                        metrics.ascent + metrics.underline,
                         cellWidth,
                         metrics.rule,
                         column,
@@ -162,8 +164,8 @@ internal class CellRecords(columns: Int, rows: Int) {
                 }
                 if (flags and NativeCore.FLAG_STRIKEOUT != 0) {
                     writeRect(
-                        cellX,
-                        cellY + metrics.ascent - metrics.ascent * 0.35f,
+                        0f,
+                        metrics.ascent - metrics.ascent * 0.35f,
                         cellWidth,
                         metrics.rule,
                         column,
@@ -176,8 +178,8 @@ internal class CellRecords(columns: Int, rows: Int) {
                 if (cursorHere) {
                     when (cursorShape) {
                         NativeCore.CURSOR_BEAM -> writeRect(
-                            cellX,
-                            cellY,
+                            0f,
+                            0f,
                             cellWidth * 0.12f,
                             cellHeight,
                             column,
@@ -186,8 +188,8 @@ internal class CellRecords(columns: Int, rows: Int) {
                             atlas,
                         )
                         NativeCore.CURSOR_UNDERLINE -> writeRect(
-                            cellX,
-                            cellY + cellHeight * 0.86f,
+                            0f,
+                            cellHeight * 0.86f,
                             cellWidth,
                             cellHeight * 0.14f,
                             column,
@@ -196,8 +198,8 @@ internal class CellRecords(columns: Int, rows: Int) {
                             atlas,
                         )
                         NativeCore.CURSOR_HOLLOW -> writeRect(
-                            cellX,
-                            cellY + cellHeight * 0.9f,
+                            0f,
+                            cellHeight * 0.9f,
                             cellWidth,
                             cellHeight * 0.1f,
                             column,
@@ -254,7 +256,7 @@ internal class CellRecords(columns: Int, rows: Int) {
         foregrounds.putShort(column.toShort())
         foregrounds.putShort(row.toShort())
         putColor(color)
-        foregrounds.putShort(0)
+        foregrounds.putShort(FLAG_NONE.toShort())
         foregrounds.putShort(0)
         foregroundCount += 1
     }
@@ -283,7 +285,9 @@ internal class CellRecords(columns: Int, rows: Int) {
         foregrounds.putShort(column.toShort())
         foregrounds.putShort(row.toShort())
         putColor(color)
-        foregrounds.putShort(0)
+        // A solid quad samples one texel; its width/height are pixels, not
+        // atlas texels, so the shader must not walk the UV with them.
+        foregrounds.putShort(FLAG_SOLID.toShort())
         foregrounds.putShort(0)
         foregroundCount += 1
     }
@@ -325,6 +329,10 @@ internal class CellRecords(columns: Int, rows: Int) {
          * reserves three slots per column for the same reason.
          */
         const val OVERDRAW = 4
+
+        /** Record flag: the quad is a solid fill and samples one atlas texel. */
+        const val FLAG_SOLID = 1
+        const val FLAG_NONE = 0
 
         private fun allocate(bytes: Int): ByteBuffer =
             ByteBuffer.allocateDirect(bytes).order(ByteOrder.LITTLE_ENDIAN)

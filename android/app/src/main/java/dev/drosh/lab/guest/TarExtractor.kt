@@ -14,12 +14,18 @@ import java.nio.file.attribute.PosixFilePermission
 /**
  * A tar reader for the guest rootfs — deliberately not a general one.
  *
- * The Ubuntu base tarball is inspected, not assumed: 3413 entries, of which
- * 2562 are regular files, 655 directories, 194 symlinks and 2 hardlinks, with
- * no path longer than 87 bytes and no device nodes or FIFOs. Those four entry
- * types are implemented; anything else throws with the entry name instead of
- * being skipped, because a silently missing `/bin/sh` is worse than a failed
- * install.
+ * The Ubuntu base tarball is inspected at the block level, not through a library
+ * that normalises it away: 6826 headers for 3413 entries, because **every entry
+ * is preceded by a pax extended header** (`x`, named `./PaxHeaders/…`) carrying
+ * `mtime`/`atime`/`ctime` with sub-second precision. That is exactly the kind of
+ * detail a first version gets wrong — it did, and the device said so:
+ * "pax header before './PaxHeaders/bin' is not supported". The pax records are
+ * parsed now, and `path`, `linkpath` and `size` override the header when present.
+ *
+ * Entry types in this archive: 2562 regular files, 655 directories, 194 symlinks,
+ * 2 hardlinks. Those four are implemented; anything else throws with the entry
+ * name instead of being skipped, because a silently missing `/bin/sh` is worse
+ * than a failed install.
  *
  * Symlink *targets* are not confined to the rootfs — a rootfs legitimately has
  * `bin -> usr/bin` and absolute links like `/usr/bin/mawk`. Entry *paths* are
@@ -51,6 +57,8 @@ internal object TarExtractor {
 
         var longName: String? = null
         var longLink: String? = null
+        var nextPax: Map<String, String> = emptyMap()
+        var globalPax: Map<String, String> = emptyMap()
         var count = 0
         val header = ByteArray(BLOCK)
 
@@ -79,7 +87,7 @@ internal object TarExtractor {
                 link = it
                 longLink = null
             }
-            val size = octal(header, SIZE, 12)
+            var size = octal(header, SIZE, 12)
 
             when (type) {
                 // GNU long name / long link: the body is the string, the entry
@@ -92,7 +100,27 @@ internal object TarExtractor {
                     longLink = body(input, size).toString(US_ASCII).trimEnd('\u0000')
                     continue
                 }
-                'x', 'g' -> throw IOException("pax header before '$name' is not supported")
+                // pax extended headers: `x` applies to the next entry, `g` to
+                // everything after it. Ubuntu's tarball writes one `x` before
+                // every entry, carrying mtime/atime/ctime.
+                'x' -> {
+                    nextPax = paxRecords(body(input, size))
+                    continue
+                }
+                'g' -> {
+                    globalPax = globalPax + paxRecords(body(input, size))
+                    continue
+                }
+            }
+
+            // A pax record overrides the fixed-width header field when it is
+            // present — `path` for long names, `size` for large files.
+            if (nextPax.isNotEmpty() || globalPax.isNotEmpty()) {
+                val pax = if (globalPax.isEmpty()) nextPax else globalPax + nextPax
+                name = pax["path"] ?: name
+                link = pax["linkpath"] ?: link
+                size = pax["size"]?.toLongOrNull() ?: size
+                nextPax = emptyMap()
             }
 
             val entry = entryFile(root, name)
@@ -141,6 +169,32 @@ internal object TarExtractor {
             if (count % 100 == 0) onProgress(count, name)
         }
         onProgress(count, "")
+    }
+
+    /**
+     * Parses pax extended-header records: `<len> <key>=<value>\n`, where `<len>`
+     * is the byte length of the whole record, length field and newline included.
+     * Values are UTF-8. Keys this reader does not need (`mtime`, `atime`,
+     * `ctime`) are parsed and ignored rather than treated as errors.
+     */
+    private fun paxRecords(data: ByteArray): Map<String, String> {
+        val records = HashMap<String, String>()
+        var at = 0
+        while (at < data.size) {
+            var space = at
+            while (space < data.size && data[space] != ' '.code.toByte()) space++
+            if (space >= data.size) break
+            val length = String(data, at, space - at, US_ASCII).toIntOrNull() ?: break
+            val valueLength = at + length - space - 2 // drop " " and the newline
+            if (length <= 0 || at + length > data.size || valueLength < 0) break
+            val record = String(data, space + 1, valueLength, Charsets.UTF_8)
+            val equals = record.indexOf('=')
+            if (equals > 0) {
+                records[record.substring(0, equals)] = record.substring(equals + 1)
+            }
+            at += length
+        }
+        return records
     }
 
     /** Resolves [name] under [root] and refuses anything that escapes it. */

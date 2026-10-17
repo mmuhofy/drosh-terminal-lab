@@ -284,8 +284,10 @@ internal class TerminalRenderer(
             stride,
             16,
         )
+        GLES30.glEnableVertexAttribArray(ATTRIB_FLAGS)
+        GLES30.glVertexAttribIPointer(ATTRIB_FLAGS, 1, GLES30.GL_UNSIGNED_SHORT, stride, 20)
 
-        for (attribute in ATTRIB_ATLAS_RECT..ATTRIB_COLOR) {
+        for (attribute in ATTRIB_ATLAS_RECT..ATTRIB_FLAGS) {
             GLES30.glVertexAttribDivisor(attribute, 1)
         }
         bindDummyAttribute(ATTRIB_DUMMY_FOREGROUND)
@@ -414,7 +416,8 @@ internal class TerminalRenderer(
         const val ATTRIB_OFFSET = 2
         const val ATTRIB_GRID_POS = 3
         const val ATTRIB_COLOR = 4
-        const val ATTRIB_DUMMY_FOREGROUND = 5
+        const val ATTRIB_FLAGS = 5
+        const val ATTRIB_DUMMY_FOREGROUND = 6
 
         val BACKGROUND_VERTEX = """
             #version 300 es
@@ -458,6 +461,7 @@ internal class TerminalRenderer(
             layout(location = 2) in ivec2 aOffset;
             layout(location = 3) in uvec2 aGridPos;
             layout(location = 4) in vec4 aColor;
+            layout(location = 5) in uint aFlags;
             uniform vec4 uProjection;
             uniform vec2 uCellSize;
             uniform vec2 uAtlasSize;
@@ -469,13 +473,19 @@ internal class TerminalRenderer(
                     float(gl_VertexID == 2 || gl_VertexID == 3)
                 );
                 vec2 size = vec2(aGlyphSize);
+                // The record's offset is *inside* the cell; the cell origin comes
+                // from the grid position. Both together, once.
                 vec2 cell = vec2(aGridPos) * uCellSize;
                 gl_Position = vec4(
                     uProjection.xy + uProjection.zw * (cell + vec2(aOffset) + corner * size),
                     0.0,
                     1.0
                 );
-                vTexCoord = (vec2(aAtlasRect) + corner * size) / uAtlasSize;
+                // A solid quad is a fill, not a glyph: its width/height are pixels,
+                // so walking the UV with them would sample across the atlas.
+                vTexCoord = (aFlags & 1u) != 0u
+                    ? (vec2(aAtlasRect) + 0.5) / uAtlasSize
+                    : (vec2(aAtlasRect) + corner * size) / uAtlasSize;
                 vColor = aColor;
             }
         """.trimIndent()
