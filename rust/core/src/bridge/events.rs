@@ -2,9 +2,13 @@
 //!
 //! Two kinds of events arrive from [`alacritty_terminal::event::EventListener`]:
 //!
-//! - Replies that must go back to the PTY (`PtyWrite`, text-area size, colour
-//!   queries). These are handled here, on the spot: an application waiting for
-//!   an answer must not wait for a Kotlin frame.
+//! - Replies that only need the proxy (`PtyWrite`, text-area size) are handled
+//!   on the spot: an application waiting for an answer must not wait for a
+//!   Kotlin frame.
+//! - Colour and clipboard queries are queued, because only the session (which
+//!   owns the engine's colour table) or Kotlin (which owns the palette and the
+//!   clipboard) can answer them. `Session::drain_events` answers the colour
+//!   queries the engine has an override for and passes the rest on.
 //! - Everything else (title, bell, exit, …) is queued and drained by the app.
 
 use std::collections::VecDeque;
@@ -15,10 +19,40 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use alacritty_terminal::event::{Event, EventListener, WindowSize};
 use alacritty_terminal::event_loop::{EventLoopSender, Msg};
+use alacritty_terminal::term::ClipboardType;
+use alacritty_terminal::vte::ansi::Rgb;
 
 /// Default queue capacity. Events are rare (title/bell/exit); the cap exists so
 /// that a program spamming titles cannot grow the queue without bound.
 pub const DEFAULT_QUEUE_CAPACITY: usize = 256;
+
+/// The terminator an application used for its OSC query; the reply must use the
+/// same one (`BEL` or `ST`), which is what alacritty's own formatters do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Terminator {
+    /// `\x07`
+    Bell,
+    /// `\x1b\\`
+    St,
+}
+
+impl Terminator {
+    /// The bytes, as they appear in a reply.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Bell => "\x07",
+            Self::St => "\x1b\\",
+        }
+    }
+
+    /// Short name used in the event records Kotlin reads.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Bell => "bel",
+            Self::St => "st",
+        }
+    }
+}
 
 /// Low-frequency session events, in the order the engine produced them.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,9 +67,15 @@ pub enum SessionEvent {
     Exit,
     /// The child process exited; `128 + signal` when it was signalled.
     ChildExit(i32),
-    /// `OSC 4`/`OSC 10`/`OSC 11` query. Kotlin owns the palette, so it owns
-    /// the answer (TODO.md, Phase B).
-    ColorQuery(i32),
+    /// `OSC 4`/`OSC 10`/`OSC 11`/`OSC 12` query for a colour the engine has
+    /// not been told to override. Kotlin owns the default palette, so it owns
+    /// the answer; `prefix` is the OSC prefix alacritty itself formatted
+    /// (`4;1`, `10`, …) and is passed through unchanged.
+    ColorQuery { index: i32, prefix: String, terminator: Terminator },
+    /// `OSC 52` store: the application put `text` on the clipboard.
+    ClipboardStore { selection: bool, text: String },
+    /// `OSC 52` load: the application asked for the clipboard.
+    ClipboardLoad { selection: bool, terminator: Terminator },
     /// Cursor blink state changed.
     CursorBlinkingChange,
 }
@@ -160,17 +200,74 @@ impl EventListener for EventProxy {
                 let size = self.window_size();
                 self.write_pty(format(size));
             }
-            Event::ColorRequest(index, _format) => {
-                self.queue.push(SessionEvent::ColorQuery(index as i32));
+            Event::ColorRequest(index, format) => {
+                // alacritty's formatter is the only place that knows which OSC
+                // the query came from, so the reply is probed with a black
+                // colour and split into prefix + terminator. Kotlin supplies the
+                // colour; the format stays alacritty's.
+                match parse_color_template(&format(Rgb { r: 0, g: 0, b: 0 })) {
+                    Some((prefix, terminator)) => self.queue.push(SessionEvent::ColorQuery {
+                        index: index as i32,
+                        prefix,
+                        terminator,
+                    }),
+                    None => log::warn!("drosh-core: unrecognised colour reply format"),
+                }
+            }
+            Event::ClipboardStore(clipboard, text) => {
+                self.queue.push(SessionEvent::ClipboardStore {
+                    selection: is_selection(clipboard),
+                    text,
+                });
+            }
+            Event::ClipboardLoad(clipboard, format) => {
+                // `\x1b]52;{c};{base64}{terminator}`: probe the terminator, the
+                // rest of the reply is built where the clipboard lives.
+                match terminator_suffix(&format("")) {
+                    Some(terminator) => self.queue.push(SessionEvent::ClipboardLoad {
+                        selection: is_selection(clipboard),
+                        terminator,
+                    }),
+                    None => log::warn!("drosh-core: unrecognised clipboard reply format"),
+                }
             }
             Event::CursorBlinkingChange => self.queue.push(SessionEvent::CursorBlinkingChange),
             Event::MouseCursorDirty => {}
-            Event::ClipboardStore(_, _) | Event::ClipboardLoad(_, _) => {
-                // OSC 52 is out of Phase A scope (TODO.md): the prototype has no
-                // clipboard integration yet.
-                log::debug!("drosh-core: clipboard event ignored in the prototype");
-            }
         }
+    }
+}
+
+fn is_selection(clipboard: ClipboardType) -> bool {
+    matches!(clipboard, ClipboardType::Selection)
+}
+
+/// Split alacritty's colour reply — `\x1b]{prefix};rgb:{rr}{rr}/{gg}{gg}/{bb}{bb}{terminator}`
+/// — into its prefix and terminator.
+pub fn parse_color_template(template: &str) -> Option<(String, Terminator)> {
+    let rest = template.strip_prefix("\x1b]")?;
+    let at = rest.find(";rgb:")?;
+    let prefix = &rest[..at];
+    let tail = &rest[at + ";rgb:".len()..];
+    // Three four-digit hex components and two slashes.
+    let terminator = terminator_of(tail.get(14..)?)?;
+    Some((prefix.to_owned(), terminator))
+}
+
+fn terminator_of(text: &str) -> Option<Terminator> {
+    match text {
+        "\x07" => Some(Terminator::Bell),
+        "\x1b\\" => Some(Terminator::St),
+        _ => None,
+    }
+}
+
+fn terminator_suffix(text: &str) -> Option<Terminator> {
+    if text.ends_with("\x1b\\") {
+        Some(Terminator::St)
+    } else if text.ends_with('\x07') {
+        Some(Terminator::Bell)
+    } else {
+        None
     }
 }
 
@@ -179,5 +276,32 @@ pub fn exit_code(status: ExitStatus) -> i32 {
     match status.code() {
         Some(code) => code,
         None => status.signal().map_or(1, |signal| 128 + signal),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colour_templates_split_like_alacritty_formats_them() {
+        assert_eq!(
+            parse_color_template("\x1b]4;1;rgb:0000/0000/0000\x07"),
+            Some(("4;1".to_owned(), Terminator::Bell))
+        );
+        assert_eq!(
+            parse_color_template("\x1b]10;rgb:0000/0000/0000\x1b\\"),
+            Some(("10".to_owned(), Terminator::St))
+        );
+        assert_eq!(parse_color_template("garbage"), None);
+        // A template that lost its terminator must not be answered blindly.
+        assert_eq!(parse_color_template("\x1b]11;rgb:0000/0000/0000"), None);
+    }
+
+    #[test]
+    fn clipboard_terminators_are_recognised() {
+        assert_eq!(terminator_suffix("\x1b]52;c;\x07"), Some(Terminator::Bell));
+        assert_eq!(terminator_suffix("\x1b]52;c;\x1b\\"), Some(Terminator::St));
+        assert_eq!(terminator_suffix("\x1b]52;c;"), None);
     }
 }

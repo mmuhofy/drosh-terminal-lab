@@ -14,6 +14,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # VT engine — decision D2. 0.x crate: hard pin, upgrades are deliberate work.
 alacritty_terminal = "=0.26.0"
+# OSC 52 transport: clipboard text crosses to Kotlin base64-encoded because
+# event records are newline-separated. 0.22.0 is the version
+# alacritty_terminal 0.26.0 already resolves, so the tree keeps one copy.
+base64 = "=0.22.0"
 # JNI boundary — the version Termi runs on Android.
 jni = "=0.21"
 # PTY path (D8): portable-pty does not compile for Android, so we talk to the

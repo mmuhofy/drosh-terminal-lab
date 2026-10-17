@@ -206,6 +206,11 @@ jobs:
           set -euo pipefail
           cmp rust/chroot-ng/LICENSE android/app/src/main/assets/licenses/chroot-ng-LICENSE.txt
           cmp rust/chroot-ng/NOTICE android/app/src/main/assets/licenses/chroot-ng-NOTICE.txt
+      - name: Run the input encoder unit tests
+        # Pure JVM tests (`src/test/java`): the encoder and mouse reports are
+        # byte-exact contracts, and `assembleDebug` does not run them.
+        working-directory: android
+        run: gradle testDebugUnitTest
       - name: Assemble debug APK
         working-directory: android
         run: gradle assembleDebug

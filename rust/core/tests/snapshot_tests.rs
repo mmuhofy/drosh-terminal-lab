@@ -6,8 +6,11 @@ use alacritty_terminal::vte::ansi::{Processor, StdSyncHandler};
 
 use drosh_core::bridge::cell::CellRecord;
 use drosh_core::bridge::cell::CELL_BYTES;
+use drosh_core::bridge::snapshot::color_at;
+use drosh_core::bridge::snapshot::colors_fingerprint;
 use drosh_core::bridge::snapshot::cursor_shape;
 use drosh_core::bridge::snapshot::damage_out_len;
+use drosh_core::bridge::snapshot::mode;
 use drosh_core::bridge::snapshot::state_index;
 use drosh_core::bridge::snapshot::take_snapshot;
 use drosh_core::bridge::snapshot::write_state;
@@ -143,4 +146,63 @@ fn state_reports_size_cursor_and_offset() {
     assert_eq!(out[state_index::CURSOR_SHAPE], cursor_shape::BLOCK);
     assert_eq!(out[state_index::DISPLAY_OFFSET], 0);
     assert_ne!(out[state_index::MODE_BITS], 0, "the default mode set is not empty");
+}
+
+#[test]
+fn dectcem_hides_the_cursor() {
+    // `?25l`/`?25h` is DECTCEM. The engine resolves it into the cursor shape,
+    // so the renderer must not need a mode bit of its own.
+    let mut term = new_term();
+    let mut out = [0i32; STATE_LEN];
+
+    feed(&mut term, b"\x1b[?25l");
+    write_state(&term, &mut out);
+    assert_eq!(out[state_index::CURSOR_SHAPE], cursor_shape::HIDDEN);
+
+    feed(&mut term, b"\x1b[?25h");
+    write_state(&term, &mut out);
+    assert_eq!(out[state_index::CURSOR_SHAPE], cursor_shape::BLOCK);
+}
+
+#[test]
+fn mouse_focus_and_scroll_modes_reach_the_wire() {
+    // 1000 click, 1002 drag, 1006 SGR, 1004 focus, 1007 alternate scroll.
+    let mut term = new_term();
+    feed(&mut term, b"\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1004h\x1b[?1007h\x1b[?25l");
+
+    let mut out = [0i32; STATE_LEN];
+    write_state(&term, &mut out);
+    let bits = out[state_index::MODE_BITS] as u32;
+
+    assert_ne!(bits & mode::MOUSE_REPORT_CLICK, 0);
+    assert_ne!(bits & mode::MOUSE_DRAG, 0);
+    assert_ne!(bits & mode::SGR_MOUSE, 0);
+    assert_ne!(bits & mode::FOCUS_IN_OUT, 0);
+    assert_ne!(bits & mode::ALTERNATE_SCROLL, 0);
+    assert_eq!(bits & mode::MOUSE_MOTION, 0, "1002 is drag tracking, not any-motion");
+    assert_eq!(bits & mode::SHOW_CURSOR, 0);
+}
+
+#[test]
+fn osc_overrides_change_the_fingerprint_and_are_readable() {
+    let mut term = new_term();
+    let before = colors_fingerprint(term.colors());
+
+    feed(&mut term, b"\x1b]4;1;rgb:12/34/56\x07");
+    assert_eq!(color_at(term.colors(), 1), Some(0x123456));
+    assert_ne!(colors_fingerprint(term.colors()), before);
+
+    // OSC 10 addresses the foreground slot (256), not an ANSI entry.
+    feed(&mut term, b"\x1b]10;rgb:ffff/ffff/ffff\x07");
+    assert_eq!(color_at(term.colors(), 256), Some(0xffffff));
+
+    // OSC 110 resets the foreground to the default palette.
+    feed(&mut term, b"\x1b]110\x07");
+    assert_eq!(color_at(term.colors(), 256), None);
+    assert_ne!(colors_fingerprint(term.colors()), before, "ANSI 1 is still overridden");
+
+    // OSC 104;1 resets that ANSI entry, so the table is the default again.
+    feed(&mut term, b"\x1b]104;1\x07");
+    assert_eq!(color_at(term.colors(), 1), None);
+    assert_eq!(colors_fingerprint(term.colors()), before);
 }

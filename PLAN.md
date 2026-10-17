@@ -48,7 +48,7 @@ is closed; the install floor will keep rising — known, accepted risk.
 | D4 | Font stack | **Rust: rustybuzz (shaping) + swash (rasterize)**; atlas in Kotlin as bitmaps with 1x/1.5x/2x/3x size buckets | Android has no shaping API on the Kotlin side (no HarfBuzz access); Alacritty's glyph_cache/atlas design is the reference |
 | D5 | Rust↔Kotlin bridge | **Snapshot** (not a render-command list): DirectByteBuffer (zero-copy) + per-line damage list + event queue | Simple and fast; with the renderer in Kotlin, Rust takes no unnecessary dependency |
 | D6 | Input | Kotlin: full escape encoder + gesture vocabulary | xterm conventions (Alacritty `input/keyboard.rs` pattern); compatible with DroshKeyboard groundwork |
-| D7 | Protocols | In: OSC 8 (hyperlink), OSC 133 (semantic markers), OSC 0/2 (title), OSC 4 (palette), OSC 10/11 (fg/bg), bell, bracketed paste (2004), focus (1004). **Deferred: sixel, kitty graphics** | Alacritty's engine has no sixel (the Termux engine did — a small, accepted regression); block/agent UI covers the practical ground; separate task if users ask |
+| D7 | Protocols | In: OSC 8 (hyperlink), OSC 133 (semantic markers), OSC 0/2 (title), OSC 4 (palette), OSC 10/11 (fg/bg), OSC 52 (clipboard), bell, bracketed paste (2004), focus (1004), mouse reporting (1000/1002/1003/1006/1015). **Deferred: sixel, kitty graphics, kitty keyboard (`CSI u`)** | Alacritty's engine has no sixel (the Termux engine did — a small, accepted regression); block/agent UI covers the practical ground; separate task if users ask |
 | D8 | PTY implementation | **libc** path (NOT portable-pty) | portable-pty's `termios` dependency does not compile for Android — verified fact (also discovered independently by Termi) |
 | D9 | Distribution (Drosh) | **targetSdk 28 + F-Droid/sideload** | Android 10+ exec ban on app data for targetSdk ≥ 29 (W^X, SELinux); the Ubuntu model is bound to 28; Termux's 7-year proven path. Play is closed; rising install floor is a known long-term risk |
 | D10 | Termi (MannanSaood/termi) | Reference only; NOT a foundation | Its emulation is a toy (no alt screen, no wide chars, ~10 CSI actions), its UI is not fed from the native grid; taken from it: JNI discipline (opaque handles, panic hook, mirrored error codes) + PTY/OEM fallback lessons; upstream contributions considered where generic |
@@ -215,6 +215,12 @@ is closed; the install floor will keep rising — known, accepted risk.
   defect (Shift+Tab sent `ESC [ SPACE Z` — a stray space in a string template),
   so encoder changes now lean on the device test instead. Recorded here so the
   gap stays deliberate and is not silently re-added.
+  **Changed 2026-10-17 (user decision): the step is back.** The mouse encoder
+  (`Mouse.kt`) is a byte-exact contract with alacritty and could not be verified
+  any other way — local Gradle builds are forbidden (D13) — so the Android job
+  runs `gradle testDebugUnitTest` before `assembleDebug`. The cost is a few
+  seconds in a job that already runs Gradle; the 2026-10-16 decision is kept
+  above so the reversal is on the record rather than silently undone.
 - 2026-10-16: Phase B renderer, second decision: **damage-limited redraw by row
   slots.** Every grid row owns a fixed slot in the vertex buffer, unused slots
   are filled with degenerate quads (zero area, so they cost nothing), and a
@@ -352,6 +358,43 @@ is closed; the install floor will keep rising — known, accepted risk.
   attribution, never as pass/fail. The parked items stay in TODO.md; Phase B's
   functional gaps (pinch zoom, OSC 4/10/11 answers, CJK/emoji fallback) are not
   closed by this decision and are carried forward.
+- 2026-10-17: **Protocol completeness, ported from alacritty, not invented.**
+  Every rule below was read out of `alacritty` v0.17.0 — the tag whose
+  `alacritty_terminal` is exactly our pinned 0.26.0 — and the Kotlin/Rust tests
+  pin the bytes:
+  - **Mouse reporting** (`?1000/1002/1003`, SGR `?1006`, UTF-8 `?1015`).
+    `input/Mouse.kt` is a port of `alacritty/src/input/mod.rs`:
+    `sgr_mouse_report`, `normal_mouse_report`, motion codes 32–35, wheel 64–67,
+    modifiers added to the button (shift 4, alt 8, ctrl 16). Touch has no
+    desktop equivalent, so the mapping is Termux's (`TerminalView.onUp` and
+    `doScroll`): a tap is a left click and a finger drag is a wheel report;
+    a real pointer reports buttons and per-cell motion as they are. Mode
+    `?1007` (alternate scroll) is exported too: with no mouse tracking, a wheel
+    on the alternate screen sends `ESC O A/B`, which is alacritty's
+    `scroll_terminal`.
+  - **Focus reporting** (`?1004`): `ESC [ I` / `ESC [ O` from
+    `onWindowFocusChanged`, alacritty's `on_focus_change`.
+  - **OSC 4/10/11/12 queries.** The engine's formatter is the only code that
+    knows the prefix and the terminator, so `EventProxy` probes it with black
+    and splits the result (`parse_color_template`); a colour the engine stores
+    as an override is answered in Rust with alacritty's exact reply string, a
+    default-palette query goes to Kotlin as
+    `color_query:index:prefix:bel|st`, which owns the palette (D5). *Set* now
+    reaches the renderer as well: `nativeColors` exports the engine's
+    269-entry table, and `state[STATE_COLORS]` carries a fingerprint so the
+    table is pulled only when a colour actually changes.
+  - **OSC 52** store and load are wired end to end; the text crosses as base64
+    because event records are newline-separated, and the load reply is
+    formatted in Kotlin because that is where the clipboard lives.
+    **Policy:** the session sets `Osc52::CopyPaste`. alacritty's default is
+    `OnlyCopy` because a remote could read the clipboard; the prototype has no
+    remote (D12), so paste is safe *today* and the default is revisited when
+    SSH lands (§8).
+  **Not implemented, on purpose:** application keypad (`APP_KEYPAD`) —
+  alacritty itself only uses that mode to select bindings, and its default
+  bindings contain no keypad sequences, so emitting SS3 from a numpad would be
+  invention rather than parity; and the kitty keyboard protocol (`CSI u`),
+  which is a body of work of its own (TODO.md).
 
 ## 4. Target architecture
 
@@ -537,6 +580,10 @@ them (AGENTS.md rule 2):
    2026-10-16 on an Android 15 device**: `OpenGL ES 3.2
    v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`, logged by the Phase A
    shell's `GL_VERSION` line. No GLES2 fallback path is needed for now.
+6. **OSC 52 paste policy** — the session sets `Osc52::CopyPaste` (alacritty's
+   default is `OnlyCopy`). Safe only while the prototype has no remote
+   transport (D12). Revisit when SSH lands: the decision is whether to return
+   to `OnlyCopy`, add a per-session setting, or ask the user at first paste.
 
 ## 9. Risks and Plan-B triggers
 

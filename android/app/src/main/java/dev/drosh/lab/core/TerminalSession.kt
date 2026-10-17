@@ -70,6 +70,19 @@ internal class TerminalSession(
     private var damage = IntArray(0)
     private val state = IntArray(NativeCore.STATE_LEN)
 
+    /**
+     * The engine's colour overrides (`OSC 4/10/11/12`), `-1` for "default".
+     * Written by [pump] on the render thread; [colorsStamp] says when the
+     * contents changed, so the renderer installs the table only then.
+     */
+    val colors = IntArray(NativeCore.COLOR_COUNT)
+
+    @Volatile
+    var colorsStamp = 0
+        private set
+
+    private var colorsPulled = false
+
     val cells: ByteBuffer? get() = cellBuffer
 
     val stateArray: IntArray get() = state
@@ -98,6 +111,7 @@ internal class TerminalSession(
         }
 
         handle = created
+        colorsPulled = false
         allocate(columns, rows)
         return NativeCore.OK
     }
@@ -152,6 +166,17 @@ internal class TerminalSession(
         }
 
         NativeCore.nativeState(current, state)
+
+        // The table only changes when an application sets a colour, so the
+        // fingerprint decides whether the 269-entry pull is worth doing.
+        val stamp = state[NativeCore.STATE_COLORS]
+        if (!colorsPulled || stamp != colorsStamp) {
+            if (NativeCore.nativeColors(current, colors) == NativeCore.OK) {
+                colorsStamp = stamp
+                colorsPulled = true
+            }
+        }
+
         return damage[0]
     }
 

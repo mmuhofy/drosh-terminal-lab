@@ -64,6 +64,9 @@ internal class TerminalRenderer(
     private var width = 0
     private var height = 0
 
+    /** The `session.colorsStamp` whose table is currently installed. */
+    private var appliedColorsStamp = 0
+
     private var backgroundProgram = 0
     private var foregroundProgram = 0
     private var backgroundVao = 0
@@ -110,12 +113,6 @@ internal class TerminalRenderer(
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnable(GLES20.GL_BLEND)
         GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-        GLES20.glClearColor(
-            channel(Palette.DEFAULT_BACKGROUND, 16),
-            channel(Palette.DEFAULT_BACKGROUND, 8),
-            channel(Palette.DEFAULT_BACKGROUND, 0),
-            1f,
-        )
     }
 
     override fun onSurfaceChanged(gl: GL10?, surfaceWidth: Int, surfaceHeight: Int) {
@@ -131,6 +128,11 @@ internal class TerminalRenderer(
 
     override fun onDrawFrame(gl: GL10?) {
         val startedNanos = System.nanoTime()
+
+        // The background can be changed by the application (`OSC 11`), so the
+        // clear colour is read every frame rather than fixed at surface setup.
+        val background = Palette.background
+        GLES20.glClearColor(channel(background, 16), channel(background, 8), channel(background, 0), 1f)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
         val cells = session.cells ?: return
@@ -144,6 +146,14 @@ internal class TerminalRenderer(
 
         session.pump()
         val pumpEndNanos = System.nanoTime()
+
+        // `pump` refreshed the engine's colour table; install it only when the
+        // engine says it changed. The array is rewritten in place on this
+        // thread, so handing the reference over is safe here.
+        if (session.colorsStamp != appliedColorsStamp) {
+            appliedColorsStamp = session.colorsStamp
+            Palette.setOverrides(session.colors)
+        }
 
         if (atlas.dirty) {
             uploadAtlas()

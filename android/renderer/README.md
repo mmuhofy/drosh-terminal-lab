@@ -16,11 +16,18 @@ cell buffer + per-line damage list) and **glyph bitmaps** coming from Rust.
 [`../../PLAN.md`](../../PLAN.md) §6.
 
 **Phase B (current):** the code that exists is `TerminalRenderer` +
-`GlyphAtlas` + `CellMetrics` + `Palette` in
+`GlyphAtlas` + `CellMetrics` + `CellRecords` + `Palette` in
 `android/app/src/main/java/dev/drosh/lab/render/`. The glyphs are no longer
 baked from Android's typeface: Rust rasterises one coverage mask per codepoint
 (`ffi/font.rs` → `GlyphAtlas`), the cell geometry comes from the same font
 (`CellMetrics` ← `nativeFontMetrics`), and the atlas is a single-channel
-(`GL_R8`) texture the shader tints. Still missing from the components above:
-instancing, the damage-limited loop, the size buckets and the per-cell colour
-batching — the renderer still draws the whole grid every frame.
+(`GL_R8`) texture the shader tints. Instancing and the two-pass draw are in
+place (`CellRecords` builds the background stream and the ~24-byte foreground
+records; the quad is built in the vertex shader from `gl_VertexID`). Still
+missing from the components above: the size buckets, and the damage list is
+still ignored — every frame rebuilds the whole grid.
+
+`Palette` resolves the default 16 ANSI colours, the cube/ramp and the dim
+variants, and gives precedence to the engine's `OSC 4/10/11/12` overrides
+(`nativeColors`, pulled when `STATE_COLORS` changes).
+

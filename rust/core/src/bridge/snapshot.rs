@@ -11,8 +11,9 @@ use alacritty_terminal::event::EventListener;
 use alacritty_terminal::grid::{Dimensions, Grid};
 use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::Cell;
+use alacritty_terminal::term::color::{Colors, COUNT as COLOR_COUNT};
 use alacritty_terminal::term::{point_to_viewport, LineDamageBounds, Term, TermDamage, TermMode};
-use alacritty_terminal::vte::ansi::CursorShape;
+use alacritty_terminal::vte::ansi::{CursorShape, Rgb};
 
 use crate::bridge::cell::{CellRecord, CELL_BYTES};
 
@@ -39,7 +40,9 @@ pub mod state_index {
     pub const CURSOR_SHAPE: usize = 4;
     pub const DISPLAY_OFFSET: usize = 5;
     pub const MODE_BITS: usize = 6;
-    pub const RESERVED: usize = 7;
+    /// Fingerprint of the engine's dynamic colour table (see
+    /// [`colors_fingerprint`]); Kotlin pulls the table when it changes.
+    pub const COLORS: usize = 7;
 }
 
 /// Cursor shapes on the wire.
@@ -67,6 +70,8 @@ pub mod mode {
     pub const LINE_WRAP: u32 = 1 << 11;
     pub const LINE_FEED_NEW_LINE: u32 = 1 << 12;
     pub const ORIGIN: u32 = 1 << 13;
+    pub const UTF8_MOUSE: u32 = 1 << 14;
+    pub const ALTERNATE_SCROLL: u32 = 1 << 15;
 }
 
 /// Engine mode → wire bit.
@@ -85,6 +90,8 @@ const MODE_TABLE: &[(TermMode, u32)] = &[
     (TermMode::LINE_WRAP, mode::LINE_WRAP),
     (TermMode::LINE_FEED_NEW_LINE, mode::LINE_FEED_NEW_LINE),
     (TermMode::ORIGIN, mode::ORIGIN),
+    (TermMode::UTF8_MOUSE, mode::UTF8_MOUSE),
+    (TermMode::ALTERNATE_SCROLL, mode::ALTERNATE_SCROLL),
 ];
 
 /// Everything that can go wrong while filling Kotlin's buffers.
@@ -204,7 +211,34 @@ pub fn write_state<T: EventListener>(term: &Term<T>, out: &mut [i32; STATE_LEN])
     out[state_index::CURSOR_SHAPE] = cursor_shape_code(content.cursor.shape);
     out[state_index::DISPLAY_OFFSET] = offset as i32;
     out[state_index::MODE_BITS] = mode_bits(content.mode) as i32;
-    out[state_index::RESERVED] = 0;
+    out[state_index::COLORS] = colors_fingerprint(term.colors());
+}
+
+/// One entry of the engine's dynamic colour table, or `None` when the
+/// application has not overridden it (the default palette applies).
+pub fn color_at(colors: &Colors, index: usize) -> Option<u32> {
+    let color = colors[index]?;
+    Some(u32::from(color.r) << 16 | u32::from(color.g) << 8 | u32::from(color.b))
+}
+
+/// Fingerprint of the dynamic colour table (`OSC 4/10/11/12` overrides).
+///
+/// The table is 269 entries and changes only when an application sets a colour,
+/// so a hash is cheaper than copying it on every frame: Kotlin compares this
+/// value against the last one it saw and pulls the table only when it differs.
+pub fn colors_fingerprint(colors: &Colors) -> i32 {
+    // FNV-1a, 32 bit.
+    let mut hash: u32 = 0x811c_9dc5;
+    for index in 0..COLOR_COUNT {
+        let entry = match colors[index] {
+            // `+ 1` keeps "unset" distinct from black (`0`).
+            Some(Rgb { r, g, b }) => 1 + (u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b)),
+            None => 0,
+        };
+        hash ^= entry;
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash as i32
 }
 
 /// Copy one line of the viewport, `left..=right`, into the cell buffer.

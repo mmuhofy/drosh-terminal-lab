@@ -15,9 +15,13 @@ use alacritty_terminal::event::WindowSize;
 use alacritty_terminal::event_loop::{EventLoop, EventLoopSender, Msg};
 use alacritty_terminal::grid::{Dimensions, Scroll};
 use alacritty_terminal::sync::FairMutex;
-use alacritty_terminal::term::{Config, LineDamageBounds, Term};
+use alacritty_terminal::term::color::COUNT as COLOR_COUNT;
+use alacritty_terminal::term::{Config, LineDamageBounds, Osc52, Term};
+use alacritty_terminal::vte::ansi::Rgb;
 
-use crate::bridge::events::{EventProxy, EventQueue, SessionEvent, DEFAULT_QUEUE_CAPACITY};
+use crate::bridge::events::{
+    EventProxy, EventQueue, SessionEvent, Terminator, DEFAULT_QUEUE_CAPACITY,
+};
 use crate::bridge::snapshot;
 use crate::session::pty_factory::{LocalPty, PtyConfig};
 
@@ -136,7 +140,12 @@ impl Session {
         let size_slot = Arc::new(Mutex::new(window_size));
 
         let proxy = EventProxy::new(events.clone(), sender_slot.clone(), size_slot.clone());
-        let terminal = Term::new(Config::default(), &config.size, proxy.clone());
+        // OSC 52 paste is enabled because the prototype has no remote transport
+        // (D12): only the local shell can read the clipboard. alacritty defaults
+        // to `OnlyCopy` because a remote could exfiltrate it — revisit this when
+        // SSH lands (PLAN.md §8).
+        let term_config = Config { osc52: Osc52::CopyPaste, ..Config::default() };
+        let terminal = Term::new(term_config, &config.size, proxy.clone());
         let term = Arc::new(FairMutex::new(terminal));
 
         let pty = LocalPty::spawn(&PtyConfig {
@@ -264,8 +273,44 @@ impl Session {
     }
 
     /// Remove and return every queued event.
+    ///
+    /// A colour query the engine can answer itself — the application overrode
+    /// that colour with `OSC 4/10/11/12` — is answered here and never reaches
+    /// Kotlin; only queries about the default palette are handed over, because
+    /// the palette lives on the Kotlin side (D5).
     pub fn drain_events(&self) -> Vec<SessionEvent> {
-        self.events.drain()
+        let events = self.events.drain();
+        let mut pending = Vec::with_capacity(events.len());
+
+        for event in events {
+            match event {
+                SessionEvent::ColorQuery { index, prefix, terminator } => {
+                    // The engine produces these from its own colour indices, but
+                    // an out-of-range one must not abort the process across JNI.
+                    let Ok(index) = usize::try_from(index) else { continue };
+                    if index >= COLOR_COUNT {
+                        continue;
+                    }
+
+                    match self.with_term(|term| term.colors()[index]) {
+                        Some(rgb) => {
+                            let reply = color_reply(&prefix, rgb, terminator);
+                            if let Err(err) = self.write(reply.as_bytes()) {
+                                log::warn!("drosh-core: colour reply failed: {err}");
+                            }
+                        }
+                        None => pending.push(SessionEvent::ColorQuery {
+                            index: index as i32,
+                            prefix,
+                            terminator,
+                        }),
+                    }
+                }
+                other => pending.push(other),
+            }
+        }
+
+        pending
     }
 
     /// Run `f` with the engine's terminal, holding its lock.
@@ -296,6 +341,23 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// alacritty's own reply format (`alacritty_terminal/src/term/mod.rs`,
+/// `dynamic_color_sequence`): every component is printed twice, e.g.
+/// `\x1b]4;1;rgb:1212/3434/5656\x07`.
+pub fn color_reply(prefix: &str, color: Rgb, terminator: Terminator) -> String {
+    format!(
+        "\x1b]{};rgb:{:02x}{:02x}/{:02x}{:02x}/{:02x}{:02x}{}",
+        prefix,
+        color.r,
+        color.r,
+        color.g,
+        color.g,
+        color.b,
+        color.b,
+        terminator.as_str(),
+    )
+}
+
 fn io_error(err: impl std::fmt::Display) -> SessionError {
     SessionError::Io(err.to_string())
 }
@@ -324,4 +386,18 @@ fn validate(config: &SessionConfig) -> Result<(), SessionError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colour_replies_match_alacritty() {
+        let bell = color_reply("4;1", Rgb { r: 0x12, g: 0x34, b: 0x56 }, Terminator::Bell);
+        assert_eq!(bell, "\x1b]4;1;rgb:1212/3434/5656\x07");
+
+        let st = color_reply("11", Rgb { r: 0, g: 0, b: 0xff }, Terminator::St);
+        assert_eq!(st, "\x1b]11;rgb:0000/0000/ffff\x1b\\");
+    }
 }

@@ -138,11 +138,13 @@ session. (Details: PLAN.md §7-Phase A)
 - [ ] Evented event keys: `alacritty_terminal`'s `PTY_READ_WRITE_TOKEN` (0) and
       `PTY_CHILD_EVENT_TOKEN` (1) are private; `pty_factory.rs` mirrors them.
       Re-verify on every engine upgrade.
-- [ ] `color_query` records are queued but nobody answers them yet: Kotlin owns
-      the palette, so the answer belongs in the Kotlin shell (vim/`OSC 11`
-      background detection waits for a reply until it times out).
-- [ ] OSC 52 clipboard events are ignored on purpose (Phase B: `input/paste.kt`
-      + clipboard bridge).
+- [x] `color_query` records are answered (2026-10-17): the engine answers any
+      colour it stores as an override itself, and hands the rest to Kotlin as
+      `color_query:index:prefix:bel|st`; Kotlin owns the default palette and
+      writes alacritty's reply format. See "Protocol completeness" below.
+- [x] OSC 52 store/load wired end to end (2026-10-17): base64 on the event
+      record, Android clipboard on the Kotlin side. `Osc52::CopyPaste` is set
+      for the prototype — PLAN.md §8 item 6 says when to revisit it.
 - [ ] Zerowidth (combining) characters are not in the cell record yet; Phase B
       shapes text in Rust and adds a glyph reference.
 - [ ] The Kotlin mirror has no tests of its own: the frozen values (error
@@ -154,8 +156,8 @@ session. (Details: PLAN.md §7-Phase A)
       Phase B (Gate 2) replaces the source of the bitmap, not the interface.
 - [ ] The renderer redraws the whole grid every frame; the damage list is
       filled by the bridge but unused until Phase B's damage-limited loop.
-- [ ] `color_query` (OSC 4/10/11) answers still have no owner: the palette
-      lives in Kotlin, so the reply belongs there (Phase B, with the encoder).
+- [x] `color_query` (OSC 4/10/11) answers have an owner (2026-10-17): the
+      engine answers stored overrides, Kotlin answers the default palette.
 - [ ] `PS1="$ "` is passed through the environment so the prompt is visible
       without relying on mksh's rc files; Phase C's guest shell takes over.
 - [ ] Cursor blink is a fixed 500 ms toggle and the poll interval is a fixed
@@ -313,12 +315,13 @@ session. (Details: PLAN.md §7-Phase A)
 - [x] `input/keys.kt` → `ExtraKeysView`: Ctrl (sticky), Esc, Tab and the four
       arrows. Enter is CR (0x0d) now, not LF: the tty's ICRNL turns it into a
       newline for the shell and a raw-mode program gets what it expects.
-- [ ] `android/app/src/test/java/.../EncoderTest.kt` pins every sequence, but
-      **CI does not run it** (user decision, 2026-10-16: no unit-test step in
-      CI). Run it by hand with `gradle testDebugUnitTest` when the encoder
-      changes — while it *was* wired into CI it caught a real bug immediately
-      (Shift+Tab sent `ESC [ SPACE Z` because of a stray space in a string
-      template). Recorded here so the gap is deliberate, not forgotten.
+- [x] `android/app/src/test/java/.../EncoderTest.kt` pins every sequence and
+      `MouseTest.kt` pins the mouse reports; **CI runs them again** since
+      2026-10-17 (`gradle testDebugUnitTest` before `assembleDebug`, user
+      decision — the 2026-10-16 "no unit-test step" decision is reversed in
+      PLAN.md with the reason). The step caught a real defect on its first run
+      in October (Shift+Tab sent `ESC [ SPACE Z` because of a stray space in a
+      string template), which is why it is worth its seconds.
 - [ ] Ctrl+C/D/Z: reachable as Ctrl plus `c`/`d`/`z` from the soft keyboard and
       from a hardware keyboard (the sticky Ctrl turns the first committed
       character into its C0 control code). A dedicated row button is not there
@@ -337,6 +340,37 @@ session. (Details: PLAN.md §7-Phase A)
       scroll, line selection (triple tap), and the *rectangular* selection mode
       alacritty has — the prototype's is a linear range, which is what a phone
       drag produces.
+
+### Protocol completeness (2026-10-17, ported from alacritty v0.17.0)
+- [x] Mouse reporting: `input/Mouse.kt` ports `alacritty/src/input/mod.rs`
+      (`sgr_mouse_report`, `normal_mouse_report`, motion 32–35, wheel 64–67,
+      modifiers 4/8/16, the 223/2015 coordinate limits). `?1000/1002/1003`
+      decide what is reported, `?1006` the encoding, `?1015` the UTF-8
+      coordinates. Touch mapping is Termux's (`onUp` tap = left click,
+      `doScroll` drag = wheel 64/65); a real pointer reports buttons and
+      per-cell motion. `?1007` (alternate scroll) sends `ESC O A/B` when the
+      application is not tracking the mouse.
+- [x] Focus reporting (`?1004`): `ESC [ I` / `ESC [ O` on window focus.
+- [x] OSC 4/10/11/12: query replies and runtime overrides. `nativeColors`
+      exports the engine's 269-entry table; `STATE_COLORS` is a fingerprint, so
+      the pull happens only when a colour changed. The renderer resolves cells
+      against the override table first (`Palette.resolve`).
+- [x] OSC 52: store and load. `Osc52::CopyPaste` is a prototype decision, not
+      an alacritty default (PLAN.md §8 item 6).
+- [x] DECTCEM (`?25l`) verified to work through `RenderableCursor` →
+      `CURSOR_HIDDEN` (`dectcem_hides_the_cursor` test).
+- [ ] Not done, deliberately: application keypad (`APP_KEYPAD`) — alacritty
+      uses the mode only for binding selection and ships no keypad sequences;
+      the kitty keyboard protocol (`CSI u`) — a separate body of work.
+- [ ] Device check still owed: mouse reporting in `vim` (`:set mouse=a`) and in
+      `less --mouse`, focus in/out, `printf '\e]11;?\a'` returning the
+      background, and `OSC 52` copy out of a program.
+- [ ] **Scroll direction is unverified.** Android's `distanceY` is positive when
+      the finger moves *up*, while the code adds it to `session.scroll`, whose
+      positive delta goes *back into history* — so a drag may be inverted
+      (Termux maps it the other way). The wheel reports reuse the same sign, so
+      both paths are consistent with each other; confirm on a device with a long
+      output and flip both together if it is wrong.
 
 ### Benchmarks
 - [x] Frame timings in the app (`bench/FrameStats.kt`): frame work split into
