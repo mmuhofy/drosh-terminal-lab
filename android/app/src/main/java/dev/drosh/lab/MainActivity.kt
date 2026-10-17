@@ -1,6 +1,7 @@
 package dev.drosh.lab
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Typeface
@@ -17,11 +18,13 @@ import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
+import dev.drosh.lab.guest.ChrootProbe
 import dev.drosh.lab.input.AndroidKeys
 import dev.drosh.lab.input.Encoder
 import dev.drosh.lab.input.ExtraKeysView
@@ -146,6 +149,7 @@ class MainActivity : Activity() {
         }
         keys.onCopy = { copySelection() }
         keys.onPaste = { pasteClipboard() }
+        keys.onProbe = { runChrootProbe() }
 
         // The row scrolls sideways: Ctrl/Esc/Tab/arrows fit a phone, but the row
         // is meant to grow (Ctrl+C, other keys) without a layout rewrite.
@@ -579,6 +583,39 @@ class MainActivity : Activity() {
         } else {
             session.writeUtf8(capped)
         }
+    }
+
+    /**
+     * Phase C, Gate 3: run `chroot-ng --probe` on the device and show what it
+     * says. The probe is a process of its own, so it must not run on the UI
+     * thread; the output goes to a dialog *and* to logcat, because the gate
+     * artefact has to be readable without a screenshot.
+     */
+    private fun runChrootProbe() {
+        if (ChrootProbe.binary(this) == null) {
+            toast("probe: libchrootng.so is not in the APK")
+            return
+        }
+        toast("probe: running…")
+        Thread {
+            val output = ChrootProbe.run(this, "--probe")
+            runOnUiThread { showProbeOutput(output) }
+        }.start()
+    }
+
+    private fun showProbeOutput(output: String) {
+        val text = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
+            setTextIsSelectable(true)
+            setPadding(24, 24, 24, 24)
+            this.text = output
+        }
+        AlertDialog.Builder(this)
+            .setTitle("chroot-ng --probe")
+            .setView(ScrollView(this).apply { addView(text) })
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun focusInput() {

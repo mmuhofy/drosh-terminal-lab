@@ -10,6 +10,7 @@ with the project's own GPL-3.0 (`LICENSE`).
 |---|---|---|---|
 | This project | — | **GPL-3.0** (`LICENSE`) | the app and the Rust core |
 | JetBrains Mono NL | 2.304 | **SIL OFL-1.1** | `android/app/src/main/assets/fonts/` — the license text ships inside the APK next to the fonts, as OFL requires |
+| `chroot-ng` | subtree at `12d07c1` | **Apache-2.0** | `rust/chroot-ng/` (vendored subtree), shipped as `lib/arm64-v8a/libchrootng.so`; its `LICENSE` and `NOTICE` ship inside the APK in `assets/licenses/` and a CI step fails if the copies drift from the subtree |
 
 ## Linked into `libdrosh_core.so`
 
@@ -37,11 +38,11 @@ when the code is redistributed; the vendored subtrees below keep theirs. Where a
 crate offers a choice, this project takes the Apache-2.0 option for the
 Apache-2.0-or-MIT crates so that a single notice covers them.
 
-## Vendored / planned
+## Vendored
 
 | Component | Version | License | Note |
 |---|---|---|---|
-| `chroot-ng` | commit-pinned (Phase C) | Apache-2.0 | vendored subtree; its own `LICENSE` stays inside the subtree |
+| `chroot-ng` | subtree at `12d07c1` (2026-10-14) | Apache-2.0 | `rust/chroot-ng/`; pin and update procedure in `VENDOR.md`. Distributed in the APK, so its `LICENSE` and `NOTICE` are copied into `assets/licenses/` and checked by CI |
 
 ## Build-time only (not distributed)
 
