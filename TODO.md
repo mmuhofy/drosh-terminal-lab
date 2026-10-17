@@ -464,12 +464,26 @@ session. (Details: PLAN.md §7-Phase A)
 
 ### Gate 3 (device, CI-built APK)
 - [ ] On device: `chroot-ng --probe` — seccomp/execmem/noexec viability
+      (the APK's **Probe** button runs it and shows the output; the same lines
+      go to `adb logcat -s DroshLabChroot`)
 - [ ] execmem denied → file-backed loading mode works
 - [ ] Device + kernel recorded here
+- [x] **CI half of Gate 3 (2026-10-17):** `Gate 3 — chroot-ng cross-build
+      (aarch64)` builds the pinned subtree with `gcc-aarch64-linux-gnu`, asserts
+      the result is an aarch64 ELF **with no `INTERP` segment** (a dynamic
+      loader would make it unrunnable on Android), uploads it, and the Android
+      job packages it as `lib/arm64-v8a/libchrootng.so` and fails the run unless
+      the APK contains it.
 
 ### Vendoring + launch
-- [ ] `rust/chroot-ng/` vendoring: commit-pin + patch branch setup
-- [ ] CI cross-build (aarch64) + packaging into the APK
+- [x] `rust/chroot-ng/` vendoring: `git subtree` at `12d07c1` (2026-10-14),
+      Apache-2.0, pin and update procedure in `rust/chroot-ng/VENDOR.md`;
+      Drosh patches stay in a separate branch, not in the subtree
+- [x] CI cross-build (aarch64) + packaging into the APK
+- [x] Probe surface: the extra-keys row's **Probe** button
+      (`guest/ChrootProbe.kt`) execs the packaged binary from
+      `nativeLibraryDir` — the only place an app may exec from on Android 10+ —
+      and shows `--probe` verbatim in a dialog
 - [ ] `pty_factory.rs`: chroot-ng argv mapping (`-u`, `-w`, `-b`, `-E`)
 - [ ] `android/guest/`: rootfs download + verify + extract (from Drosh)
 

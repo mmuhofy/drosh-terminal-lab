@@ -29,6 +29,9 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
     /** Paste the clipboard into the session. */
     var onPaste: (() -> Unit)? = null
 
+    /** Run the Phase C gate probe (`chroot-ng --probe`) and show its output. */
+    var onProbe: (() -> Unit)? = null
+
     /** Called when the armed state changes, so the activity can show it. */
     var onCtrlChanged: ((Boolean) -> Unit)? = null
 
@@ -58,6 +61,9 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
         // to get text *into* the session without typing it.
         addButton("Copy") { onCopy?.invoke() }
         addButton("Paste") { onPaste?.invoke() }
+        // Phase C's gate is a device measurement, so it needs a button: the
+        // probe prints the kernel facts the guest runtime depends on.
+        addButton("Probe") { onProbe?.invoke() }
     }
 
     fun clearCtrl() = setCtrlArmed(false)

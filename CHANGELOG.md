@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Phase C groundwork: **chroot-ng is vendored** as a `git subtree` pinned at
+  `12d07c1` (Apache-2.0; pin, update procedure and packaging rationale in
+  `rust/chroot-ng/VENDOR.md`). A new CI job cross-builds it for aarch64 and
+  fails unless the result is a static ELF with **no `INTERP` segment** — a
+  dynamic loader would make it unrunnable on Android. The Android job packages
+  it as `lib/arm64-v8a/libchrootng.so` (the `lib*.so` name is how it reaches
+  `nativeLibraryDir`, the one directory an app may exec from) and the APK
+  assertion now checks both binaries.
+- The extra-keys row's **Probe** button (`guest/ChrootProbe.kt`): runs
+  `chroot-ng --probe` on the device, shows the output in a dialog and mirrors
+  every line to `DroshLabChroot` in logcat. This is the device half of Gate 3.
+
 - Phase B groundwork: the Rust font stack (`rust/core/src/font/`) — `rustybuzz`
   shapes text, `swash` rasterises it.
   - `shape.rs`: glyph ids, clusters, advances and offsets; `liga`/`clig`/`calt`/

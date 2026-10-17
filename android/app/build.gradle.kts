@@ -39,6 +39,11 @@ android {
             // Raw (non-.so-named) executables must exist on disk to be exec'd;
             // this is the documented chroot-ng/Pockr finding. Keep it.
             useLegacyPackaging = true
+            // chroot-ng ships as `libchrootng.so` only so that the installer
+            // extracts it into `nativeLibraryDir`; it is a static executable,
+            // not a library. Keep the strip task away from it — its symbols are
+            // the only thing that makes an on-device crash readable.
+            keepDebugSymbols += "**/libchrootng.so"
         }
     }
 }

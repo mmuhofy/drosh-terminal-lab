@@ -72,8 +72,46 @@ jobs:
       - name: Cross-check the font stack for Android
         run: cargo check -p drosh-core --lib --target aarch64-linux-android
 
+  chroot-ng:
+    # Phase C, Gate 3 (the CI half): the vendored chroot-ng cross-builds for
+    # aarch64 and comes out static and interpreter-free. That is the property
+    # that lets it run on Android at all — a glibc dynamic binary cannot.
+    # The device half of Gate 3 (`--probe` on the phone) stays manual.
+    name: Gate 3 — chroot-ng cross-build (aarch64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross toolchain
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq gcc-aarch64-linux-gnu
+      - name: Build (upstream Makefile, pinned subtree)
+        working-directory: rust/chroot-ng
+        run: make CROSS=aarch64-linux-gnu- -j"$(nproc)"
+      - name: The result is a binary Android can exec
+        run: |
+          set -euo pipefail
+          BIN=rust/chroot-ng/build/chroot-ng
+          file "$BIN"
+          file "$BIN" | grep -q "ELF 64-bit LSB executable, ARM aarch64"
+          # An INTERP segment means a dynamic loader, which does not exist on
+          # Android for a glibc binary; fail here, not on the device.
+          if readelf -l "$BIN" | grep -q "INTERP"; then
+            echo "::error::$BIN has an interpreter; Android cannot exec it"
+            exit 1
+          fi
+          ls -l "$BIN"
+      - name: Upload the binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: chroot-ng-aarch64
+          path: rust/chroot-ng/build/chroot-ng
+          if-no-files-found: error
+
   android-build:
     name: Android assembleDebug
+    needs: chroot-ng
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -133,6 +171,22 @@ jobs:
           cp target/aarch64-linux-android/release/libdrosh_core.so \
             ../android/app/src/main/jniLibs/arm64-v8a/
           ls -l ../android/app/src/main/jniLibs/arm64-v8a/
+      - name: Fetch the cross-built chroot-ng
+        uses: actions/download-artifact@v4
+        with:
+          name: chroot-ng-aarch64
+          path: ${{ runner.temp }}/chroot-ng-aarch64
+      - name: Package chroot-ng as an executable in the APK
+        # `nativeLibraryDir` is the one directory an app may exec from on
+        # Android 10+, and only `lib*.so` entries are extracted there — so the
+        # freestanding static binary is renamed, not linked as a library.
+        run: |
+          set -euo pipefail
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a
+          cp "$RUNNER_TEMP/chroot-ng-aarch64/chroot-ng" \
+            android/app/src/main/jniLibs/arm64-v8a/libchrootng.so
+          chmod 755 android/app/src/main/jniLibs/arm64-v8a/libchrootng.so
+          ls -l android/app/src/main/jniLibs/arm64-v8a/
       - name: Ensure Gradle
         # No wrapper jar is committed to git; use the runner's Gradle when
         # present, otherwise install the pinned version.
@@ -144,6 +198,14 @@ jobs:
           fi
           gradle --version
       - uses: gradle/actions/setup-gradle@v4
+      - name: The APK carries chroot-ng's license and notice
+        # Apache-2.0 §4 requires the NOTICE to travel with a redistribution.
+        # The copies in assets/ are checked against the subtree so a pin bump
+        # cannot leave a stale license in the APK.
+        run: |
+          set -euo pipefail
+          cmp rust/chroot-ng/LICENSE android/app/src/main/assets/licenses/chroot-ng-LICENSE.txt
+          cmp rust/chroot-ng/NOTICE android/app/src/main/assets/licenses/chroot-ng-NOTICE.txt
       - name: Assemble debug APK
         working-directory: android
         run: gradle assembleDebug
@@ -154,7 +216,9 @@ jobs:
           set -euo pipefail
           APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libdrosh_core.so"
-          echo "$APK contains libdrosh_core.so"
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libchrootng.so"
+          echo "$APK contains libdrosh_core.so and libchrootng.so"
+          unzip -l "$APK" | grep "lib/arm64-v8a/"
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
