@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Protocol completeness, ported from alacritty v0.17.0** (the tag whose
   `alacritty_terminal` is exactly our pinned 0.26.0), not written from memory:
   - **Mouse reporting** (`input/Mouse.kt`): SGR (`?1006`) and the legacy form,
-    motion 32–35, wheel 64–67, modifiers 4/8/16, the `?1015` UTF-8 coordinate
+    motion 32–35, wheel 64–67, modifiers 4/8/16, the `?1005` UTF-8 coordinate
     extension and the 223/2015 limits. `?1000/1002/1003` decide what is
     reported. Touch keeps the Termux mapping (tap = left click, drag = wheel);
     a real pointer reports buttons and per-cell motion. `?1007` sends
@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   payloads, colour-query prefixes and terminators).
 - DECTCEM (`?25l`) is covered by a test: the engine resolves it into
   `CursorShape::Hidden`, which the renderer already honours.
+- The UTF-8 mouse mode is **`?1005`** (`vte`'s `NamedPrivateMode::Utf8Mouse`);
+  an earlier draft of the docs said `?1015`, which alacritty does not handle.
 
 - Phase C groundwork: **chroot-ng is vendored** as a `git subtree` pinned at
   `12d07c1` (Apache-2.0; pin, update procedure and packaging rationale in

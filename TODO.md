@@ -345,7 +345,7 @@ session. (Details: PLAN.md §7-Phase A)
 - [x] Mouse reporting: `input/Mouse.kt` ports `alacritty/src/input/mod.rs`
       (`sgr_mouse_report`, `normal_mouse_report`, motion 32–35, wheel 64–67,
       modifiers 4/8/16, the 223/2015 coordinate limits). `?1000/1002/1003`
-      decide what is reported, `?1006` the encoding, `?1015` the UTF-8
+      decide what is reported, `?1006` the encoding, `?1005` the UTF-8
       coordinates. Touch mapping is Termux's (`onUp` tap = left click,
       `doScroll` drag = wheel 64/65); a real pointer reports buttons and
       per-cell motion. `?1007` (alternate scroll) sends `ESC O A/B` when the
@@ -368,9 +368,11 @@ session. (Details: PLAN.md §7-Phase A)
 - [ ] **Scroll direction is unverified.** Android's `distanceY` is positive when
       the finger moves *up*, while the code adds it to `session.scroll`, whose
       positive delta goes *back into history* — so a drag may be inverted
-      (Termux maps it the other way). The wheel reports reuse the same sign, so
-      both paths are consistent with each other; confirm on a device with a long
-      output and flip both together if it is wrong.
+      (Termux maps it the other way). Both paths go through `scrollByRows`
+      (local scrollback, or `ESC O A/B` when `?1007` and the alternate screen
+      are active, where a held Shift bypasses the alternate-scroll path), so
+      flipping the sign fixes them together. Confirm on a device with a long
+      output.
 
 ### Benchmarks
 - [x] Frame timings in the app (`bench/FrameStats.kt`): frame work split into

@@ -48,7 +48,7 @@ is closed; the install floor will keep rising — known, accepted risk.
 | D4 | Font stack | **Rust: rustybuzz (shaping) + swash (rasterize)**; atlas in Kotlin as bitmaps with 1x/1.5x/2x/3x size buckets | Android has no shaping API on the Kotlin side (no HarfBuzz access); Alacritty's glyph_cache/atlas design is the reference |
 | D5 | Rust↔Kotlin bridge | **Snapshot** (not a render-command list): DirectByteBuffer (zero-copy) + per-line damage list + event queue | Simple and fast; with the renderer in Kotlin, Rust takes no unnecessary dependency |
 | D6 | Input | Kotlin: full escape encoder + gesture vocabulary | xterm conventions (Alacritty `input/keyboard.rs` pattern); compatible with DroshKeyboard groundwork |
-| D7 | Protocols | In: OSC 8 (hyperlink), OSC 133 (semantic markers), OSC 0/2 (title), OSC 4 (palette), OSC 10/11 (fg/bg), OSC 52 (clipboard), bell, bracketed paste (2004), focus (1004), mouse reporting (1000/1002/1003/1006/1015). **Deferred: sixel, kitty graphics, kitty keyboard (`CSI u`)** | Alacritty's engine has no sixel (the Termux engine did — a small, accepted regression); block/agent UI covers the practical ground; separate task if users ask |
+| D7 | Protocols | In: OSC 8 (hyperlink), OSC 133 (semantic markers), OSC 0/2 (title), OSC 4 (palette), OSC 10/11 (fg/bg), OSC 52 (clipboard), bell, bracketed paste (2004), focus (1004), mouse reporting (1000/1002/1003/1005/1006), alternate scroll (1007). **Deferred: sixel, kitty graphics, kitty keyboard (`CSI u`)** | Alacritty's engine has no sixel (the Termux engine did — a small, accepted regression); block/agent UI covers the practical ground; separate task if users ask |
 | D8 | PTY implementation | **libc** path (NOT portable-pty) | portable-pty's `termios` dependency does not compile for Android — verified fact (also discovered independently by Termi) |
 | D9 | Distribution (Drosh) | **targetSdk 28 + F-Droid/sideload** | Android 10+ exec ban on app data for targetSdk ≥ 29 (W^X, SELinux); the Ubuntu model is bound to 28; Termux's 7-year proven path. Play is closed; rising install floor is a known long-term risk |
 | D10 | Termi (MannanSaood/termi) | Reference only; NOT a foundation | Its emulation is a toy (no alt screen, no wide chars, ~10 CSI actions), its UI is not fed from the native grid; taken from it: JNI discipline (opaque handles, panic hook, mirrored error codes) + PTY/OEM fallback lessons; upstream contributions considered where generic |
@@ -362,7 +362,7 @@ is closed; the install floor will keep rising — known, accepted risk.
   Every rule below was read out of `alacritty` v0.17.0 — the tag whose
   `alacritty_terminal` is exactly our pinned 0.26.0 — and the Kotlin/Rust tests
   pin the bytes:
-  - **Mouse reporting** (`?1000/1002/1003`, SGR `?1006`, UTF-8 `?1015`).
+  - **Mouse reporting** (`?1000/1002/1003`, SGR `?1006`, UTF-8 `?1005`).
     `input/Mouse.kt` is a port of `alacritty/src/input/mod.rs`:
     `sgr_mouse_report`, `normal_mouse_report`, motion codes 32–35, wheel 64–67,
     modifiers added to the button (shift 4, alt 8, ctrl 16). Touch has no

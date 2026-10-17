@@ -11,7 +11,7 @@ import dev.drosh.lab.core.NativeCore
  * - SGR (`?1006`) is `CSI < button ; column+1 ; line+1 M|m`, release is the
  *   same button with a lower-case `m`;
  * - the legacy form is `ESC [ M` followed by `32 + button` and the two
- *   coordinates, release is button 3, and `?1015`'s UTF-8 extension encodes a
+ *   coordinates, release is button 3, and `?1005`'s UTF-8 extension encodes a
  *   coordinate above 94 as two bytes;
  * - motion uses 32 (left), 33 (middle), 34 (right) or 35 (no button), and the
  *   wheel is 64..67;
@@ -99,7 +99,7 @@ internal object Mouse {
     }
 
     /**
-     * The `?1015` coordinate form: `0xC0 + value / 64`, `0x80 + value % 64`.
+     * The `?1005` coordinate form: `0xC0 + value / 64`, `0x80 + value % 64`.
      * The `32 + 1` bias is the same as in the single-byte form.
      */
     private fun writeUtf8Position(out: java.io.ByteArrayOutputStream, position: Int) {
