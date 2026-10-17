@@ -174,13 +174,40 @@ fn mouse_focus_and_scroll_modes_reach_the_wire() {
     write_state(&term, &mut out);
     let bits = out[state_index::MODE_BITS] as u32;
 
-    assert_ne!(bits & mode::MOUSE_REPORT_CLICK, 0);
+    // The engine makes the three mouse protocols mutually exclusive, so 1002
+    // replaced 1000 rather than adding to it (`set_private_mode` removes
+    // `TermMode::MOUSE_MODE` first).
+    assert_eq!(bits & mode::MOUSE_REPORT_CLICK, 0, "1002 replaced 1000");
     assert_ne!(bits & mode::MOUSE_DRAG, 0);
+    assert_eq!(bits & mode::MOUSE_MOTION, 0, "1002 is drag tracking, not any-motion");
     assert_ne!(bits & mode::SGR_MOUSE, 0);
     assert_ne!(bits & mode::FOCUS_IN_OUT, 0);
     assert_ne!(bits & mode::ALTERNATE_SCROLL, 0);
-    assert_eq!(bits & mode::MOUSE_MOTION, 0, "1002 is drag tracking, not any-motion");
-    assert_eq!(bits & mode::SHOW_CURSOR, 0);
+    assert_eq!(bits & mode::SHOW_CURSOR, 0, "DECTCEM clears the mode bit");
+
+    // 1003 switches to any-motion and drops drag in turn.
+    feed(&mut term, b"\x1b[?1003h");
+    write_state(&term, &mut out);
+    let bits = out[state_index::MODE_BITS] as u32;
+    assert_ne!(bits & mode::MOUSE_MOTION, 0);
+    assert_eq!(bits & mode::MOUSE_DRAG, 0);
+
+    // 1005 and 1006 are mutually exclusive coordinate encodings, too.
+    feed(&mut term, b"\x1b[?1005h");
+    write_state(&term, &mut out);
+    let bits = out[state_index::MODE_BITS] as u32;
+    assert_ne!(bits & mode::UTF8_MOUSE, 0);
+    assert_eq!(bits & mode::SGR_MOUSE, 0);
+
+    // Back to click tracking; the SGR bit survives because 1006 was only
+    // cleared by 1005, not by 1000.
+    feed(&mut term, b"\x1b[?1000h\x1b[?1006h");
+    write_state(&term, &mut out);
+    let bits = out[state_index::MODE_BITS] as u32;
+    assert_ne!(bits & mode::MOUSE_REPORT_CLICK, 0);
+    assert_ne!(bits & mode::SGR_MOUSE, 0);
+    assert_eq!(bits & mode::UTF8_MOUSE, 0, "1006 replaced 1005");
+    assert_eq!(bits & mode::MOUSE_MOTION, 0);
 }
 
 #[test]
