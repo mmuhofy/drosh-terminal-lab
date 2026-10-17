@@ -36,7 +36,7 @@ internal object Rootfs {
 
     private const val ARCHIVE_BYTES = 29_936_675L
 
-    /** Extracted tree is ~80 MB; the archive is another 30 MB. */
+    /** The extracted tree is ~105 MB; the archive is another 30 MB. */
     private const val REQUIRED_FREE_BYTES = 250L * 1024 * 1024
 
     fun dir(context: Context): File = File(context.filesDir, "rootfs")
