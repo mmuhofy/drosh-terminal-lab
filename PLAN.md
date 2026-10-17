@@ -525,7 +525,14 @@ them (AGENTS.md rule 2):
    recorded decision rather than an implementation: swash can rasterise
    CBDT/COLR (`Source::ColorBitmap`), the renderer needs an RGBA atlas pass
    first — see TODO.md, Phase B Gate 2.
-4. chroot-ng probe result + file-backed mode — Phase C Gate 3
+4. chroot-ng probe result + file-backed mode — Phase C Gate 3: **passed on
+   device 2026-10-17** (Android 15, kernel `6.6.30-android15-8-g6b55ce738535-4k`,
+   aarch64, 4096-byte pages). `--probe` exit 0, verdict "primary in-process tier:
+   LIKELY VIABLE": seccomp `filter RET_ERRNO WORKS` (mode 2), **execmem OK**
+   (anon RW→RX→execute), `/` and `.` both `noexec=no`, `uid=euid=gid=egid=10341`,
+   `at_secure 0`. Because execmem is allowed the file-backed loading mode is not
+   needed here; it stays recorded as the OEM fallback. Full output in TODO.md,
+   Phase C Gate 3.
 5. GL ES 3.0 available on target devices (fallback: GLES2 path) — **verified
    2026-10-16 on an Android 15 device**: `OpenGL ES 3.2
    v1.r49p1-03bet0.3a1759ee1cb57182986f58db4ad336c2`, logged by the Phase A

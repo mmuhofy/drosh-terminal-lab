@@ -25,6 +25,7 @@ import dev.drosh.lab.bench.FrameStats
 import dev.drosh.lab.core.NativeCore
 import dev.drosh.lab.core.TerminalSession
 import dev.drosh.lab.guest.ChrootProbe
+import dev.drosh.lab.guest.Rootfs
 import dev.drosh.lab.input.AndroidKeys
 import dev.drosh.lab.input.Encoder
 import dev.drosh.lab.input.ExtraKeysView
@@ -66,6 +67,9 @@ class MainActivity : Activity() {
 
     private var scrollAccumulator = 0f
     private var exited = false
+
+    /** True while the rootfs is downloading or extracting. */
+    private var guestBusy = false
 
     /** The current selection; long-press selects a word, dragging extends it. */
     private val selection = Selection()
@@ -150,6 +154,7 @@ class MainActivity : Activity() {
         keys.onCopy = { copySelection() }
         keys.onPaste = { pasteClipboard() }
         keys.onProbe = { runChrootProbe() }
+        keys.onGuest = { launchGuest() }
 
         // The row scrolls sideways: Ctrl/Esc/Tab/arrows fit a phone, but the row
         // is meant to grow (Ctrl+C, other keys) without a layout rewrite.
@@ -616,6 +621,81 @@ class MainActivity : Activity() {
             .setView(ScrollView(this).apply { addView(text) })
             .setPositiveButton("Close", null)
             .show()
+    }
+
+    /**
+     * Phase C: install the rootfs if it is not there yet, then hand the session
+     * to chroot-ng. The install is a 30 MB download and an 80 MB extraction, so
+     * it runs on its own thread with a dialog that says which stage it is in —
+     * a silent spinner would make a failed install look like a hung app.
+     */
+    private fun launchGuest() {
+        if (guestBusy) {
+            return
+        }
+        if (Rootfs.isInstalled(this)) {
+            enterGuest()
+            return
+        }
+
+        guestBusy = true
+        val progress = TextView(this).apply {
+            typeface = Typeface.MONOSPACE
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(32, 32, 32, 32)
+            text = "preparing"
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Ubuntu ${Rootfs.VERSION}")
+            .setView(progress)
+            .setCancelable(false)
+            .create()
+        dialog.show()
+
+        Thread {
+            try {
+                Rootfs.ensureInstalled(this) { message ->
+                    runOnUiThread { progress.text = message }
+                }
+                runOnUiThread {
+                    guestBusy = false
+                    dialog.dismiss()
+                    enterGuest()
+                }
+            } catch (error: Throwable) {
+                Log.e(TAG, "guest install failed", error)
+                runOnUiThread {
+                    guestBusy = false
+                    dialog.dismiss()
+                    toast("guest install failed: ${error.message}")
+                }
+            }
+        }.start()
+    }
+
+    /** Restarts the session as `chroot-ng <rootfs> /bin/bash` — same renderer. */
+    private fun enterGuest() {
+        val command = Rootfs.command(this)
+        if (command == null) {
+            toast("chroot-ng is missing from the APK")
+            return
+        }
+        val (program, args) = command
+
+        session.configure(
+            program = program,
+            args = args,
+            env = mapOf(
+                "HOME" to "/root",
+                "PATH" to "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            ),
+            cwd = null,
+        )
+        selection.clear()
+        exited = false
+        startSession()
+        surface.requestRender()
+        Log.i(TAG, "guest: ${args.joinToString(" ")}")
     }
 
     private fun focusInput() {

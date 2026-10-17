@@ -20,6 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - The extra-keys row's **Probe** button (`guest/ChrootProbe.kt`): runs
   `chroot-ng --probe` on the device, shows the output in a dialog and mirrors
   every line to `DroshLabChroot` in logcat. This is the device half of Gate 3.
+- **Gate 3 passed on the device (2026-10-17)**: `--probe` exit 0, verdict
+  "primary in-process tier: LIKELY VIABLE" — seccomp `RET_ERRNO` works, execmem
+  is allowed (so the file-backed fallback is not needed on this kernel), `/` and
+  `.` are not `noexec`. Recorded in PLAN.md §8 and TODO.md.
+- **Ubuntu guest bootstrap** (`guest/Rootfs.kt`, `guest/TarExtractor.kt`): the
+  official `ubuntu-base` 24.04.5 arm64 tarball is downloaded, checked against
+  Ubuntu's pinned SHA-256, extracted into a staging directory and only then
+  renamed into place, with a stamp so a version bump reinstalls. The tar reader
+  is hand-written against the archive's actual contents (files, dirs, symlinks,
+  hardlinks; no pax, no long names) and refuses anything it does not understand
+  rather than skipping it. The row's **Ubuntu** button runs the install and then
+  restarts the session as `chroot-ng … <rootfs> /bin/bash -l`; `INTERNET` is
+  declared again, for this download alone.
 
 - Phase B groundwork: the Rust font stack (`rust/core/src/font/`) — `rustybuzz`
   shapes text, `swash` rasterises it.

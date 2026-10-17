@@ -15,11 +15,31 @@ import java.nio.ByteOrder
  * same session description.
  */
 internal class TerminalSession(
-    private val program: String,
-    private val args: List<String> = emptyList(),
-    private val env: Map<String, String> = emptyMap(),
-    private val cwd: String? = null,
+    program: String,
+    args: List<String> = emptyList(),
+    env: Map<String, String> = emptyMap(),
+    cwd: String? = null,
 ) {
+
+    // Not `val`: the guest mode replaces the command and restarts the session
+    // (Phase C) while the renderer keeps this same object and its buffers.
+    private var program: String = program
+    private var args: List<String> = args
+    private var env: Map<String, String> = env
+    private var cwd: String? = cwd
+
+    /** Changes what [start] launches. Takes effect on the next [start]. */
+    fun configure(
+        program: String,
+        args: List<String>,
+        env: Map<String, String>,
+        cwd: String?,
+    ) {
+        this.program = program
+        this.args = args
+        this.env = env
+        this.cwd = cwd
+    }
 
     @Volatile
     var handle: Long = NO_HANDLE

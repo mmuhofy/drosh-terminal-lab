@@ -32,6 +32,9 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
     /** Run the Phase C gate probe (`chroot-ng --probe`) and show its output. */
     var onProbe: (() -> Unit)? = null
 
+    /** Install (if needed) and enter the Ubuntu guest. */
+    var onGuest: (() -> Unit)? = null
+
     /** Called when the armed state changes, so the activity can show it. */
     var onCtrlChanged: ((Boolean) -> Unit)? = null
 
@@ -64,6 +67,8 @@ internal class ExtraKeysView(context: Context) : LinearLayout(context) {
         // Phase C's gate is a device measurement, so it needs a button: the
         // probe prints the kernel facts the guest runtime depends on.
         addButton("Probe") { onProbe?.invoke() }
+        // Phase C's payoff: the host shell is one process, the guest is another.
+        addButton("Ubuntu") { onGuest?.invoke() }
     }
 
     fun clearCtrl() = setCtrlArmed(false)

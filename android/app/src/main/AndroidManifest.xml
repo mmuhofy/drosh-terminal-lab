@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Phase C: the Ubuntu base rootfs is fetched from cdimage.ubuntu.com and
+         verified against a pinned SHA-256. This is the only permission the
+         prototype declares, and the app never dials out on its own. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <application
         android:label="@string/app_name"
         android:theme="@style/AppTheme"
