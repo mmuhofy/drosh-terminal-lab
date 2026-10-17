@@ -335,29 +335,55 @@ session. (Details: PLAN.md §7-Phase A)
 
 ### Benchmarks
 - [x] Frame timings in the app (`bench/FrameStats.kt`): frame work split into
-      pump / build / draw, with monotone counters (work and interval buckets,
-      `>8ms` share = the acceptance numerator, phase averages, jank count, worst
-      frame). **Tapping the status line freezes** them (amber) and produces the
-      artefact: one `DroshLabBench` logcat line, the same line appended to
-      `files/bench.log`, and a POST to the device-side collector. GPU time would
-      need timer queries and is out of scope.
-- [x] The workload is written down (`bench/scenarios.sh`): `steady`, `scroll-cat`
-      (2 MB), `scroll-ls` (`ls -R /system`), `runaway` (`yes | head -30000`) —
-      plus `bench/push-results.sh` for a machine with `adb`, and
-      `bench/README.md` for the process.
-- [x] Transport, device half: `bench/BenchUploader.kt` posts a frozen line to
-      `http://127.0.0.1:8080/bench` (loopback constants only, off the main
-      thread, only on an explicit freeze tap). This is the app's first declared
-      permission (`INTERNET`, required by Android even for loopback).
-- [x] Transport, reading half: **the app hosts the endpoint** and the reviewer
-      pulls (`GET /info`, `GET /bench.log`, fixed port 8080, every interface,
-      addresses logged). Verified end to end on 2026-10-16: a fetch from the build
-      box returned the device line above without the tester pasting anything.
-      `bench/fetch-results.sh` is the script; `adb logcat -d -s DroshLabBench`
-      stays as the offline fallback. The app must be running for the endpoint to
-      exist (the trade the tester accepted).
-- [ ] The acceptance numbers themselves (a device run per scenario) — the numbers
-      go into the device-run entry above.
+      pump / build / upload / draw, with monotone counters (work and interval
+      buckets, `>8ms` share = the acceptance numerator, phase averages, jank
+      count, worst frame, `rec/f`). **Tapping the status line freezes** them
+      (amber) and produces the artefact: one `DroshLabBench` logcat line plus the
+      same line appended to `files/bench.log`. GPU time would need timer queries
+      and is out of scope.
+- [x] **The bench harness was removed** (`4f4113d`, user decision): the
+      app-hosted endpoint, `bench/BenchServer.kt`, the `INTERNET` permission, the
+      scenario/label/result scripts and the pull path are gone. It worked, but it
+      cost the person holding the phone more than the numbers were worth — and
+      the numbers were still not comparable until a workload label existed.
+      `bench/README.md` keeps the lesson. Remaining channel: `adb logcat -d -s
+      DroshLabBench` (the app must be running when the freeze happens).
+- [ ] **Workload labelling is not solved** — the scenario script went with the
+      harness, and every capture so far is unlabelled, which is why runs 2/3/4
+      cannot be compared. If perf work resumes, this is the first thing to
+      rebuild (a label in the frozen line, not a transport).
+- [ ] **Device run 4 (2026-10-16 ~19:00, Android 15 — build not pinned):**
+      `frames=8 slow8=8 (100.00%) max=47.8 pump=3.2 build=39.0 upload=0.7 draw=0.8 jank=4`.
+      The line carries `upload=`, and that field only exists from `c47062b`
+      (`#23`) onward — so it cannot be `00650f4`, the commit this run was
+      previously labelled with. The exact build is unknown; the numbers are kept
+      because the attribution is still useful, not because the provenance is.
+      Attribution: snapshot 3.2 ms (cheap, the "parser holds the lock" hypothesis is
+      wrong); GL submit 0.8 ms (the GPU is not the problem); `build` 39.0 ms on
+      average with an already-warmed ASCII atlas — the cost is the per-cell
+      work in Kotlin. **Hypothesis, not measured:** `ByteBuffer.put*` on 3200
+      cells plus the palette `when`-branches. Candidates, in cost/effort order:
+      (1) bulk-write each row into a reused `ByteArray` and push it with a
+      single `glBufferSubData` per row (eliminates the per-`put` path);
+      (2) pre-pack fg/bg as single ints;
+      (3) move the record build into Rust together with the snapshot, leaving
+      only atlas-slot bookkeeping in Kotlin — the real lever, and the Plan-B
+      question (`PLAN.md` §9) that is now on the table *with data*, not as
+      an argument.
+      **Caveat on the number:** run 4 was a `debug` APK (`assembleDebug`, no R8,
+      `debuggable`), so 39 ms is a pessimistic figure and must not be read as a
+      shipping number. `rec/f` was added in `09467eb` — no capture has reported
+      it yet.
+- [ ] **Parked (2026-10-17, user decision): performance work stops here.**
+      We spent the Phase B budget chasing `p99 < 8 ms` on a debug build without
+      a workload label; the measurement was not comparable and the target was
+      never a release-build target. The vertex rewrite (`09467eb`) is merged but
+      **not device-verified** — the next device run is a *correctness* check
+      (does the screen still draw right), not a perf campaign. The open perf
+      items below stay recorded, not dropped; they resume only with (a) a
+      release build, (b) a labelled workload, (c) one freeze per scenario.
+- [ ] The acceptance numbers themselves — one freeze per labelled scenario, on a
+      release build. Neither the label nor the release build exists yet.
 - [ ] Atlas upload is still the whole texture when a glyph is added (1 MB); with
       ASCII warmed up that is once per app run plus the rare codepoint, but a
       `glTexSubImage2D` of the changed rows would remove it entirely.
@@ -393,7 +419,8 @@ session. (Details: PLAN.md §7-Phase A)
         and the *process* was fixed too: the rolling status window is gone
         (counters only grow, tapping freezes them into a `DroshLabBench` logcat
         line) with the workload now written down as scenarios
-        (`bench/scenarios.sh`). See `bench/README.md`.
+        (`bench/scenarios.sh`, removed again in `4f4113d`). See
+        `bench/README.md`.
       - still to test: Tab/Ctrl combinations, selection + copy/paste, and the
         same numbers under a *defined* workload (a burst that does not saturate
         the PTY, e.g. `cat` of a few MB) — the acceptance criterion needs a
@@ -423,14 +450,15 @@ session. (Details: PLAN.md §7-Phase A)
       `rows/frame`, split vertex building from **uploading** (a driver pays per
       `glBufferSubData`, and a scrolling frame issued one per row), and upload the
       whole buffer in one call when most rows are dirty.
-- [ ] frame p99 < 8 ms — needs labelled scenario runs: the captures are
-      chronological, so running `bench/scenarios.sh` in order and freezing once
-      per scenario maps four lines onto four names
-- [ ] no jank under full-screen output (the same line counts janky frames)
+- [ ] frame p99 < 8 ms — **parked** (2026-10-17, see the Benchmarks section):
+      needs a release build *and* a labelled workload; neither exists yet
+- [ ] no jank under full-screen output (the same line counts janky frames) —
+      parked with the item above
 - [ ] crisp pinch zoom; select + copy + paste working ← zoom is not built yet
       (see the input section); copy/paste are
 - [ ] If targets are missed: evaluate the Alacritty renderer port Plan-B with
-      the measured data
+      the measured data — **not triggered**: the measurement that would justify
+      it does not exist, so this stays a recorded trigger, not a decision
 
 ## Phase C — chroot-ng + Ubuntu (~1–2 weeks)
 

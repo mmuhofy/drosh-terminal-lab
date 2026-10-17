@@ -50,13 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   to ~1 KB before, which is the path the device captures found the frame time in.
   The damage-limited row slots went with it: at this size a full rebuild is
   cheaper than the bookkeeping that avoided it.
-- The app hosts the bench endpoint itself (`bench/BenchServer.kt`, fixed port
-  8080): read-only GETs for `/` (index), `/info` (device, kernel, core version,
-  grid, cell metrics, GL, font) and `/bench.log` (one header line per app start,
-  then one line per frozen capture), with `bench/fetch-results.sh` to pull them.
-  Nothing is uploaded from the device; the app never dials out. The lab build
-  binds every interface so a bridged address answers, and `INTERNET` exists for
-  that listening socket alone.
 - The input layer (`input/Encoder.kt`, `input/AndroidKeys.kt`,
   `input/ExtraKeysView.kt`): xterm key sequences read out of alacritty's own
   sources — APP_CURSOR (`ESC O A`) versus normal (`ESC [ A`) cursors, the
@@ -71,16 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   blanks; Paste wraps the clipboard in `ESC [ 200 ~ … 201 ~` when the program
   enabled mode 2004.
 - Frame timings (`bench/FrameStats.kt`) with a status line in the app: frame work
-  split into pump/build/draw, monotone counters (work and interval buckets,
-  averages, jank count, worst frame) and **freeze on tap**, which turns a glance
-  into an artefact — one `DroshLabBench` logcat line, the same line appended to
-  `files/bench.log`, and posted to the device-side collector
-  (`bench/BenchUploader.kt`, loopback only).
-- `bench/`: the scenario script (`scenarios.sh`: steady, scroll-cat, scroll-ls,
-  runaway), the result collector for a machine with `adb` (`push-results.sh`) and
-  a README that records how a measurement is taken and why the device cannot push
-  to a build box. The app declares its first permission, `INTERNET`, because
-  Android requires it even for a loopback socket.
+  split into pump/build/upload/draw, monotone counters (work and interval
+  buckets, averages, jank count, worst frame, `rec/f`) and **freeze on tap**,
+  which turns a glance into an artefact — one `DroshLabBench` logcat line and the
+  same line appended to `files/bench.log`.
 - JVM unit tests for the encoder (`android/app/src/test/`, JUnit 4.13.2). They
   are **not** wired into CI (user decision, 2026-10-16); run them with
   `gradle testDebugUnitTest` when the encoder changes. While they were briefly
@@ -89,35 +76,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- The frame timing in the status line is split into **pump / build / draw**: the
-  first device numbers (`p50 114 ms`) could not be attributed, so the phases have
-  to be visible separately. A device run then settled it (`pump 1.5 ms`,
-  `build 13.3 ms`, `draw 0.7 ms`): the snapshot is cheap and the cost is the
-  Kotlin side.
+- The frame timing in the status line is split into **pump / build / upload /
+  draw**: the first device numbers (`p50 114 ms`) could not be attributed, so the
+  phases have to be visible separately. A device run then settled it (`pump
+  1.5 ms`, `build 13.3 ms`, `draw 0.7 ms`): the snapshot is cheap and the cost is
+  the Kotlin side.
 - Jank now means **work over two refreshes**, not the gap between drawn frames:
   the gap counts idle time, and it reported 15 "janky" frames out of 16 while the
   app was doing nothing.
 - The atlas rasterises printable ASCII once, from the GL thread, before the first
   frame: a burst used to pay one JNI call per new glyph plus a full atlas
   re-upload per frame, which is where the 120 ms frame came from.
-- The frame line carries **rows/frame** and the vertex building is measured apart
-  from the **uploading**: `build` scales with how many rows were rebuilt, so
-  without that number two device runs cannot be compared (runs 2 and 3 differed
-  by 5x for that reason). When at least a third of the rows are dirty the whole
-  buffer goes up in one call instead of one `glBufferSubData` per row.
-- The renderer no longer pads a row's slot with degenerate quads: a row records
-  how many quads it produced and `draw` submits that prefix with one
-  `glDrawArrays` per row. The first device build wrote (and paid for) roughly
-  four wasted quads per drawn one.
 - The layout is a vertical column: the GL surface takes everything above the
   extra-keys row, so the grid is told about a smaller surface instead of drawing
   underneath the buttons. The row itself scrolls sideways, because it is meant to
   grow.
-- The renderer is damage-limited: every grid row owns a fixed slot in the vertex
-  buffer, a frame rebuilds only the rows the engine reported (plus the cursor's
-  row) and uploads them with `glBufferSubData`. The 32 ms `Handler` poll is gone:
-  a Choreographer-driven `FrameLoop` checks the engine's wakeup flag once per
-  vsync, which also makes the cursor blink cheap (one row).
+- The 32 ms `Handler` poll is gone: a Choreographer-driven `FrameLoop` checks the
+  engine's wakeup flag once per vsync, which also makes the cursor blink cheap.
+  The frame uploads the whole record stream with `GL_STREAM_DRAW` and takes the
+  whole-buffer path when most rows are dirty; per-row slots were the previous
+  design and were dropped with the instanced rewrite.
 
 ## [0.2.0] - 2026-10-16
 
