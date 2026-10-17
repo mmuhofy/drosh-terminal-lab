@@ -288,6 +288,14 @@ is closed; the install floor will keep rising — known, accepted risk.
   bridging to `adb forward`. The app never dials out, and the endpoint serves
   bench numbers and device facts, never terminal content, which is also why
   `INTERNET` is the only permission the prototype declares.
+  **changed: 2026-10-16 18:22 — removed again** (`4f4113d`, user decision): the
+  endpoint, `BenchServer.kt`, `INTERNET`, the scenario/label/result scripts and
+  the pull path are gone. It worked (a device line was pulled end to end without
+  a paste), but it cost the tester more than the numbers were worth, and the
+  numbers were still not comparable until a workload label existed. What stays:
+  monotone counters and one frozen line on a tap (`DroshLabBench` in logcat plus
+  `files/bench.log`). The lesson — a harness must be cheaper than the measurement
+  it produces — lives in `bench/README.md`.
 - 2026-10-16: **Renderer vertex path re-read against alacritty and Ghostty, and
   redesigned for the phone** (user request). Sources read, not remembered:
   - alacritty `src/renderer/text/gles2.rs` + `res/gles2/text.v.glsl`: one vertex
@@ -330,6 +338,20 @@ is closed; the install floor will keep rising — known, accepted risk.
      Ghostty carries an `atlas` attribute for exactly that.
   The claim is that CPU→GPU data per damaged cell drops by roughly an order of
   magnitude; it is not claimed to be enough until a device capture says so.
+- 2026-10-17: **Performance work is parked, and the phase moves on** (user
+  decision). The Phase B budget went into `p99 < 8 ms` measured on
+  `assembleDebug` builds — no R8, `debuggable`, no workload label — so the
+  numbers were pessimistic *and* not comparable to each other: runs 2/3/4 differ
+  by 5x on `build` mostly because they rebuilt different amounts of the grid, not
+  because the renderer changed. The instanced rewrite (`09467eb`, ~28 B/cell) is
+  merged and CI-green but **not device-verified**; the next device run is a
+  *correctness* check (does the screen still draw right), not a benchmark.
+  Consequence for the acceptance criterion: a frame target is only an acceptance
+  number when it comes from a release build with a labelled workload and one
+  freeze per scenario — the debug-build captures above are recorded as
+  attribution, never as pass/fail. The parked items stay in TODO.md; Phase B's
+  functional gaps (pinch zoom, OSC 4/10/11 answers, CJK/emoji fallback) are not
+  closed by this decision and are carried forward.
 
 ## 4. Target architecture
 
@@ -454,9 +476,10 @@ passed in CI.
   pinch zoom (row anchoring), momentum scroll
 - `bench/`: frame p50/p99 + jank counter overlay
 
-**Acceptance:** frame p99 < 8 ms; no jank under full-screen output; crisp
-pinch zoom; select/copy/paste working. If targets are missed, §9 Plan-B
-(renderer port) is evaluated **with the measured data**.
+**Acceptance:** frame p99 < 8 ms on a **release** build with a labelled workload
+(a debug-APK number is attribution, not acceptance — 2026-10-17); no jank under
+full-screen output; crisp pinch zoom; select/copy/paste working. If targets are
+missed, §9 Plan-B (renderer port) is evaluated **with the measured data**.
 
 ### Phase C — chroot-ng + Ubuntu (~1–2 weeks)
 
