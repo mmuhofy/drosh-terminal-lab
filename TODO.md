@@ -463,11 +463,23 @@ session. (Details: PLAN.md §7-Phase A)
 ## Phase C — chroot-ng + Ubuntu (~1–2 weeks)
 
 ### Gate 3 (device, CI-built APK)
-- [ ] On device: `chroot-ng --probe` — seccomp/execmem/noexec viability
-      (the APK's **Probe** button runs it and shows the output; the same lines
-      go to `adb logcat -s DroshLabChroot`)
-- [ ] execmem denied → file-backed loading mode works
-- [ ] Device + kernel recorded here
+- [x] **On device (2026-10-17, APK `484f5d2`, Android 15, kernel
+      `6.6.30-android15-8-g6b55ce738535-4k`, aarch64, 4096-byte pages):**
+      `chroot-ng --probe` → **exit 0, verdict "primary in-process tier: LIKELY
+      VIABLE"**. The four lines that decide it:
+      - `seccomp-BPF floor (>=3.5): yes`; `prctl(GET_SECCOMP)` present, current
+        mode 2; **`filter RET_ERRNO WORKS`** — the filter is not inert on real
+        hardware, which is what the probe's own verdict warns about.
+      - **`execmem … RESULT OK (executed thunk)`** — anon RW→RX→execute is
+        allowed, so the in-process tier is viable and **the file-backed loading
+        mode is not needed** (the fallback stays recorded for OEMs that deny it).
+      - `noexec`: `/` and `.` both `noexec=no` (f_type `0xe0f5e1e2`).
+      - identity: `uid=euid=gid=egid=10341`, `at_secure 0`, `hwcap 0x119fff`.
+      Read back from the dialog, not from a screenshot; the same lines are in
+      `adb logcat -s DroshLabChroot`.
+- [ ] execmem denied → file-backed loading mode works — **not triggered**: this
+      device allows execmem. The item stays as the OEM fallback.
+- [x] Device + kernel recorded here (above)
 - [x] **CI half of Gate 3 (2026-10-17):** `Gate 3 — chroot-ng cross-build
       (aarch64)` builds the pinned subtree with `gcc-aarch64-linux-gnu`, asserts
       the result is an aarch64 ELF **with no `INTERP` segment** (a dynamic
@@ -484,8 +496,37 @@ session. (Details: PLAN.md §7-Phase A)
       (`guest/ChrootProbe.kt`) execs the packaged binary from
       `nativeLibraryDir` — the only place an app may exec from on Android 10+ —
       and shows `--probe` verbatim in a dialog
-- [ ] `pty_factory.rs`: chroot-ng argv mapping (`-u`, `-w`, `-b`, `-E`)
-- [ ] `android/guest/`: rootfs download + verify + extract (from Drosh)
+- [x] **Rootfs install (`guest/Rootfs.kt`)**: Ubuntu base **24.04.5 arm64**
+      (29,936,675 bytes, SHA-256 `a91d5a93…14f2` — Ubuntu's own value from the
+      `SHA256SUMS` beside the tarball, verified against a download on
+      2026-10-17). Staged: download → verify hash → extract into `rootfs.tmp` →
+      rename → `rootfs.stamp` (version + hash, so a pin bump reinstalls). Fails
+      with a message, not a stack trace, when free space is under 250 MB.
+- [x] **Tar extraction (`guest/TarExtractor.kt`)**: hand-written reader, not a
+      dependency and not `toybox tar` (an OEM could ship without it). The
+      archive was inspected rather than assumed — 3413 entries: 2562 files, 655
+      dirs, 194 symlinks, 2 hardlinks, longest path 87 bytes, no device nodes,
+      no pax headers. Exactly those four types are implemented; anything else
+      throws with the entry name. Paths are confined to the rootfs (canonical
+      parent check); symlink *targets* are not, because a rootfs legitimately
+      has absolute links.
+- [x] **Guest launch**: the row's **Ubuntu** button installs if needed, then
+      restarts the session as `libchrootng.so --fake-id=0:0 --work-dir=/root
+      <rootfs> /bin/bash -l`; the renderer keeps the same session object
+      (`TerminalSession.configure`), so nothing else has to rebind. `INTERNET`
+      is back in the manifest for this download alone.
+- [ ] **Guest run 1 is not done yet** — the install + launch path is written and
+      compiles in CI, but no device has run it. First run should report: install
+      stage times, then whether bash's prompt appears and `id` says uid 0.
+- [ ] `/etc/resolv.conf` for the guest: ubuntu-base ships none and Android has
+      no `/etc/resolv.conf`; apt/DNS needs it written from ConnectivityManager
+      (Phase C fidelity, before `apt update`)
+- [ ] `pty_factory.rs`: chroot-ng argv mapping (`-u`, `-w`, `-b`, `-E`) — the
+      argv is built in Kotlin for now (`Rootfs.command`); moving it into the
+      session config is a Phase C tidy-up, not a blocker
+- [ ] `android/guest/`: rootfs download + verify + extract (from Drosh) — done
+      above without Drosh's code; the Drosh implementation should be compared
+      against it when integration starts (e.g. its mirror list)
 
 ### Guest fidelity checklist
 - [ ] `apt update && apt install -y build-essential`
