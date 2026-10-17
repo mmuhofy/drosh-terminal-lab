@@ -342,6 +342,8 @@ session. (Details: PLAN.md §7-Phase A)
       drag produces.
 
 ### Protocol completeness (2026-10-17, ported from alacritty v0.17.0)
+- [x] Merged to `main` as `e2aba81` (PR #32, squash). CI: run `39055655722`
+      green on all five jobs; the branch run `39053435899` was green as well.
 - [x] Mouse reporting: `input/Mouse.kt` ports `alacritty/src/input/mod.rs`
       (`sgr_mouse_report`, `normal_mouse_report`, motion 32–35, wheel 64–67,
       modifiers 4/8/16, the 223/2015 coordinate limits). `?1000/1002/1003`
