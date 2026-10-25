@@ -224,6 +224,23 @@ jobs:
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libchrootng.so"
           echo "$APK contains libdrosh_core.so and libchrootng.so"
           unzip -l "$APK" | grep "lib/arm64-v8a/"
+      - name: The APK declares the SDK levels the build file asks for
+        # aapt2 is part of build-tools 36.0.0 and is the only reliable reader of
+        # a compiled (binary XML) manifest. Without this, "the APK is on
+        # targetSdk N" would be a claim about a build file rather than about the
+        # artifact on the phone.
+        run: |
+          set -euo pipefail
+          APK=$(ls android/app/build/outputs/apk/debug/*.apk | head -1)
+          BADGING=$("$ANDROID_HOME/build-tools/36.0.0/aapt2" dump badging "$APK")
+          echo "$BADGING" | grep -E "^package:|^sdkVersion:|^targetSdkVersion:|^native-code:"
+          EXPECTED_TARGET=$(sed -n 's/^[[:space:]]*targetSdk = \(.*\)$/\1/p' android/app/build.gradle.kts)
+          GOT=$(echo "$BADGING" | sed -n "s/^targetSdkVersion:'\([0-9]*\)'$/\1/p")
+          test "$GOT" = "$EXPECTED_TARGET" || {
+            echo "::error::APK declares targetSdk $GOT but build.gradle.kts says $EXPECTED_TARGET"
+            exit 1
+          }
+          echo "APK targetSdk = $GOT (matches build.gradle.kts)" >> "$GITHUB_STEP_SUMMARY"
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
