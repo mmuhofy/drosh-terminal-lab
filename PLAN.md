@@ -50,7 +50,7 @@ is closed; the install floor will keep rising — known, accepted risk.
 | D6 | Input | Kotlin: full escape encoder + gesture vocabulary | xterm conventions (Alacritty `input/keyboard.rs` pattern); compatible with DroshKeyboard groundwork |
 | D7 | Protocols | In: OSC 8 (hyperlink), OSC 133 (semantic markers), OSC 0/2 (title), OSC 4 (palette), OSC 10/11 (fg/bg), OSC 52 (clipboard), bell, bracketed paste (2004), focus (1004), mouse reporting (1000/1002/1003/1005/1006), alternate scroll (1007). **Deferred: sixel, kitty graphics, kitty keyboard (`CSI u`)** | Alacritty's engine has no sixel (the Termux engine did — a small, accepted regression); block/agent UI covers the practical ground; separate task if users ask |
 | D8 | PTY implementation | **libc** path (NOT portable-pty) | portable-pty's `termios` dependency does not compile for Android — verified fact (also discovered independently by Termi) |
-| D9 | Distribution (Drosh) | **targetSdk 28 + F-Droid/sideload** | Android 10+ exec ban on app data for targetSdk ≥ 29 (W^X, SELinux); the Ubuntu model is bound to 28; Termux's 7-year proven path. Play is closed; rising install floor is a known long-term risk |
+| D9 | Distribution (Drosh) | **targetSdk 28 + F-Droid/sideload** | Android 10+ exec ban on app data for targetSdk ≥ 29 (W^X, SELinux); the Ubuntu model is bound to 28; Termux's 7-year proven path. Play is closed; rising install floor is a known long-term risk. **Under test in the lab since 2026-10-25**: the lab app is on targetSdk 36 (decision history) — chroot-ng is not subject to this ban |
 | D10 | Termi (MannanSaood/termi) | Reference only; NOT a foundation | Its emulation is a toy (no alt screen, no wide chars, ~10 CSI actions), its UI is not fed from the native grid; taken from it: JNI discipline (opaque handles, panic hook, mirrored error codes) + PTY/OEM fallback lessons; upstream contributions considered where generic |
 | D11 | Warp / kitty / WezTerm / Ghostty | Reading material, not code | Warp is AGPL (legal risk); kitty is C and not a library; wezterm-term is unpublished with explicitly no API stability; libghostty is Zig with a not-yet-stable API |
 | D12 | Prototype scope | **No config system, no SSH** | The prototype is terminal-only with fixed defaults (the real Drosh has a TOML config system that stays there). SSH (SSHJ/FdPair) is fully deferred to the Drosh integration phase |
@@ -63,6 +63,14 @@ is closed; the install floor will keep rising — known, accepted risk.
   (user decision: prototype is terminal-only; Drosh has TOML config).
 - 2026-10-15: D13 added — no-local-builds CI policy, English commits,
   CHANGELOG discipline (user decision); all docs translated to English.
+- 2026-10-25: **D9 under test on `main`** (user request): `targetSdk` raised
+  28 → 36 as a device experiment. D9 is not overturned — the exec ban it avoids
+  reaches `execve`, which this core never calls; see the commit body. What is
+  actually being measured is the *platform* behaviour that comes with newer
+  targets (`extractNativeLibs` under `useLegacyPackaging`, 16 KB page-size
+  requirements). Device findings must be written back here before this is
+  treated as a settled decision; if the findings are neutral, D9's rationale
+  stands for Drosh's proot/Ubuntu model and the lab stays on 36.
 - 2026-10-15: GitHub repo `mmuhofy/drosh-terminal-lab` (public) created; CI
   workflow added (host fmt/clippy/test, Gate 1 cross-check, assembleDebug +
   APK artifact). Toolchain pinned: AGP 8.9.1 (compileSdk 36 requires
