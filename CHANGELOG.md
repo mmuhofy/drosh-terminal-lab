@@ -126,6 +126,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **targetSdk raised from 28 to 36 for a device experiment** (user request,
+  2026-10-25). D9 is not overturned: chroot-ng never calls `execve` (it maps the
+  guest ELF through its own userland loader) and the packaged binary starts from
+  `nativeLibraryDir`, which is executable at any targetSdk. The change is on
+  `main` at the user's explicit direction; device findings are to be recorded in
+  PLAN.md D9 — in particular `extractNativeLibs` handling under
+  `useLegacyPackaging`, and the 16 KB page-size requirement that arrives with
+  newer targets.
 - **The Android CI job runs the JVM unit tests again**
   (`gradle testDebugUnitTest` before `assembleDebug`). The 2026-10-16 "no
   unit-test step" decision is reversed by user decision, because the new mouse

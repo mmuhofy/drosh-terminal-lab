@@ -10,9 +10,13 @@ android {
     defaultConfig {
         applicationId = "dev.drosh.lab"
         minSdk = 26
-        // Decision D9 — targetSdk 28 is deliberate (Android 10+ exec ban on
-        // app data for targetSdk >= 29). Never change silently.
-        targetSdk = 28
+        // Experiment (user request, 2026-10-25): raised from the D9 value 28 to
+        // the newest platform (compileSdk 36) to observe what changes on device.
+        // D9 is NOT overturned by this — chroot-ng never calls execve (it maps
+        // the guest ELF itself via its userland loader) and the packaged binary
+        // starts from nativeLibraryDir, which is executable at any targetSdk.
+        // Record the device findings in PLAN.md D9 before treating this as final.
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
 
